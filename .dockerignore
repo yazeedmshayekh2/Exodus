@@ -1,0 +1,65 @@
+# Version control
+.git
+.gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+ENV/
+env/
+*.egg-info/
+dist/
+build/
+eggs/
+parts/
+bin/
+var/
+sdist/
+develop-eggs/
+.installed.cfg
+lib/
+lib64/
+
+# Logs
+*.log
+logs/
+log/
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# IDE specific files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Node modules (if any)
+node_modules/
+
+# Docker
+Dockerfile
+.dockerignore
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# Test files
+test/
+tests/
+*.test.py
+*.spec
+
+# Temporary files
+*.tmp
+*.temp
+.DS_Store 

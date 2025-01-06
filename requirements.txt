@@ -1,0 +1,14 @@
+fastapi
+uvicorn
+gunicorn
+jinja2
+python-dotenv
+sentence-transformers
+langchain
+langchain-ollama
+qdrant-client
+pyodbc
+numpy
+langdetect
+pydantic
+python-multipart

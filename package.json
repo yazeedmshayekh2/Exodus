@@ -1,0 +1,8 @@
+{
+  "dependencies": {
+    "@llm-ui/markdown": "^0.13.3",
+    "@llm-ui/react": "^0.13.3",
+    "react-markdown": "^9.0.1",
+    "remark-gfm": "^4.0.0"
+  }
+}
