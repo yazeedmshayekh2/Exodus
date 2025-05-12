@@ -8,7 +8,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
 ENV OLLAMA_BASE_URL=http://localhost:11434
 ENV MODEL_NAME=llama3.1:8b
-ENV EMBEDDINGS_CACHE_FILE=/app/embeddings_cache.npz
+ENV EMBEDDINGS_CACHE_FILE=embeddings_cache.npz
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
@@ -44,8 +44,11 @@ RUN pip3 install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY . .
 
-# Create data directory for embeddings cache
-RUN mkdir -p /app/data && chmod 777 /app/data
+# Create cache directories with proper permissions
+RUN mkdir -p /app/data \
+    && chmod -R 777 /app/data \
+    && mkdir -p $(dirname $EMBEDDINGS_CACHE_FILE) \
+    && chmod -R 777 $(dirname $EMBEDDINGS_CACHE_FILE)
 
 # Create startup script
 RUN echo '#!/bin/bash\n\

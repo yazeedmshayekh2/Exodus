@@ -1,122 +1,143 @@
-# Bilingual FAQ Chatbot
+# Bilingual FAQ Chatbot Server
 
-A production-ready FAQ chatbot that supports English and Arabic languages, using semantic search and the Llama 3.1 8B model.
+This project implements a FastAPI-based server for a bilingual FAQ chatbot that supports English and Arabic languages. It uses semantic search with sentence transformers and Qdrant vector database for finding relevant FAQ matches from a SQL Server database.
 
 ## Features
 
-- Bilingual support (English and Arabic)
-- Semantic search using sentence transformers
-- Vector similarity search with Qdrant
-- Markdown formatting for responses
-- Caching of embeddings for faster startup
-- Configurable via environment variables
-- Production-ready with Gunicorn and Uvicorn
-- CORS and security headers
-- Comprehensive logging
+- **FastAPI server** with CORS and security middleware.
+- **Sentence transformer** (MPNet-base-v2) for semantic embeddings.
+- **Local in-memory Qdrant** for vector similarity search.
+- **Ollama Llama 3.1 8B LLM** as the brain of the chatbot.
+- **SSL support** with self-signed certificates for secure communication.
+- **Ngrok integration** for exposing the server to the internet.
+- **Bilingual support** for English and Arabic languages.
 
-## Prerequisites
+## Requirements
 
-- Docker
-- At least 16GB RAM (recommended)
-- 50GB free disk space
+- Python 3.8+
+- SQL Server database
+- Ollama server running locally or remotely
+- Ngrok (optional but recommended for public access)
+- OpenSSL (for SSL certificate generation)
 
-## Quick Start
+## Installation
 
-1. Clone the repository:
+1. **Clone the repository:**
+
 ```bash
 git clone <repository-url>
-cd <repository-name>
+cd bilingual-faq-chatbot
 ```
 
-2. Create your environment file:
-```bash
-cp .env.example .env
-# Edit .env with your configuration
-```
+2. **Install dependencies:**
 
-3. Build and run with Docker:
-```bash
-docker build -t faq-chatbot .
-docker run -p 8000:8000 --env-file .env faq-chatbot
-```
-
-The chatbot will be available at http://localhost:8000
-
-## Environment Variables
-
-See `.env.example` for all available configuration options.
-
-Key variables:
-- `DB_SERVER`: SQL Server address
-- `DB_NAME`: Database name
-- `DB_USER`: Database username
-- `DB_PASSWORD`: Database password
-- `OLLAMA_BASE_URL`: Ollama API endpoint
-- `MODEL_NAME`: Llama model to use
-- `EMBEDDINGS_CACHE_FILE`: Location to store embeddings cache
-
-## API Endpoints
-
-- `GET /`: Chat interface
-- `POST /chat/`: Chat API endpoint
-- `GET /api/docs`: Swagger documentation
-- `GET /api/redoc`: ReDoc documentation
-
-## Development
-
-1. Create a virtual environment:
-```bash
-python -m venv venv
-source venv/bin/activate  # Linux/Mac
-venv\Scripts\activate     # Windows
-```
-
-2. Install dependencies:
 ```bash
 pip install -r requirements.txt
 ```
 
-3. Run in development mode:
+3. **Set up environment variables:**
+
+Copy the example `.env.example` file and modify it according to your requirements:
+
+```bash
+cp .env.example .env
+```
+
+Edit the `.env` file to set your configuration:
+
+```
+# Server Configuration
+HOST=0.0.0.0
+PORT=8000
+LOG_LEVEL=INFO
+
+# SSL Configuration
+USE_SSL=true
+SSL_CERT_DIR=./ssl
+
+# Ngrok Configuration
+USE_NGROK=true
+NGROK_AUTH_TOKEN=your_ngrok_auth_token  # Get from https://dashboard.ngrok.com/
+
+# Database Configuration
+DB_SERVER=your_db_server
+DB_NAME=your_db_name
+DB_USER=your_db_user
+DB_PASSWORD=your_db_password
+
+# LLM Configuration
+OLLAMA_BASE_URL=http://localhost:11434
+MODEL_NAME=llama3.1:8b
+```
+
+## Running the Application
+
+Start the application with:
+
 ```bash
 python main.py
 ```
 
-## Production Deployment
+The application will:
 
-The Docker container is configured for production use with:
-- Gunicorn for process management
-- Multiple workers
-- Error logging
-- Security headers
-- CORS protection
+1. Generate a self-signed SSL certificate (if enabled and doesn't exist)
+2. Start an ngrok tunnel (if enabled)
+3. Start the FastAPI server
 
-## Caching
+You can access:
+- Local URL: `https://localhost:8000` (or http if SSL is disabled)
+- Ngrok URL: Check the console output for the public URL
+- API documentation: `<your-url>/api/docs` or `<your-url>/api/redoc`
+- Server info: `<your-url>/debug/server-info`
 
-The chatbot caches FAQ embeddings to improve startup time:
-- First run: Processes FAQs and creates cache
-- Subsequent runs: Loads from cache
-- Cache location configurable via `EMBEDDINGS_CACHE_FILE`
+## Ngrok Setup (For Public Access)
+
+1. **Create an account** at [ngrok.com](https://ngrok.com/)
+2. **Get your auth token** from the dashboard
+3. **Add the token to your .env file**:
+   ```
+   NGROK_AUTH_TOKEN=your_token_here
+   ```
+
+## SSL Certificate
+
+The application generates a self-signed SSL certificate automatically in the `./ssl` directory. For production use, consider replacing these with proper certificates from a trusted Certificate Authority.
+
+## Using the API
+
+The chatbot API can be accessed through:
+
+- **Chat endpoint**: `POST /chat/`
+  ```json
+  {
+    "query": "Your question here"
+  }
+  ```
+
+- **Debug endpoints**:
+  - Server info: `GET /debug/server-info`
+  - FAQ search: `GET /debug/faq/{query}`
+  - FAQ count: `GET /debug/faqs`
+
+## Browser Access
+
+The chat interface is available at the root URL (`/`).
+
+## Security Considerations
+
+1. The self-signed certificate will cause browser warnings. For production, use a proper CA-issued certificate.
+2. The ngrok URL changes each time you restart the application unless you have a paid ngrok account.
+3. The application includes security headers and CORS protection.
 
 ## Troubleshooting
 
-1. If the chatbot fails to start:
-   - Check database connectivity
-   - Verify Ollama is running
-   - Ensure sufficient memory for the model
-
-2. If responses are slow:
-   - Adjust number of workers
-   - Check database connection
-   - Verify Ollama performance
-
-3. If embeddings cache isn't working:
-   - Check write permissions
-   - Verify cache file path
-   - Check disk space
+- **Certificate issues**: Delete the `./ssl` directory to regenerate certificates
+- **Ngrok errors**: Check your auth token and ensure ngrok is properly installed
+- **Database connection issues**: Verify your database credentials and network connectivity
 
 ## License
 
-[Your License]
+[MIT License](LICENSE)
 
 ## Author
 
