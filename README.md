@@ -1,6 +1,6 @@
-# Bilingual FAQ Chatbot with Arabic Support
+# Exodus Chatbot: Bilingual FAQ Chatbot with Hybrid Model Support
 
-A production-ready chatbot API that provides bilingual support for English and Arabic questions using semantic search and LLM-powered responses.
+A production-ready chatbot API that provides bilingual support for English and Arabic questions using semantic search and LLM-powered responses with a hybrid approach to model loading.
 
 ## Features
 
@@ -9,8 +9,41 @@ A production-ready chatbot API that provides bilingual support for English and A
 - **Automatic Language Detection**: Automatically detects the language of user input
 - **Optimized Arabic Processing**: Specialized text processing for Arabic including diacritics handling and letter normalization
 - **Semantic Search**: Uses sentence transformers to find the most relevant answers
-- **LLM Integration**: Uses Llama 3.1 (8B model) for response generation
+- **Hybrid Model Approach**: 
+  - Uses Ollama for Llama 3 model integration
+  - Direct HuggingFace integration for Qwen3-8B-FP8 model
+- **Dynamic Model Switching**: Switch between models on-the-fly based on query needs
 - **Graceful Degradation**: Falls back to simpler processing when advanced Arabic NLP tools aren't available
+
+## System Architecture
+
+```mermaid
+graph TD
+    User[User] -->|Query| Frontend[React Frontend]
+    Frontend -->|API Request| Backend[FastAPI Backend]
+    Backend -->|Language Detection| LangDetect[Language Detector]
+    Backend -->|Content Moderation| Moderation[Content Moderator]
+    Backend -->|Semantic Search| VectorDB[Vector Database]
+    Backend -->|Query Classification| ModelSelector[Model Selector]
+    
+    subgraph Models
+        ModelSelector -->|FAQ Query| FAQ[FAQ Chain]
+        ModelSelector -->|Conversational Query| Conv[Conversation Chain]
+        
+        subgraph "Model Integration"
+            FAQ -->|Model Selection| ModelHub[Model Hub]
+            Conv -->|Model Selection| ModelHub
+            ModelHub -->|Local API| Ollama[Llama3 via Ollama]
+            ModelHub -->|Direct Integration| HF[Qwen3 via HuggingFace]
+        end
+    end
+    
+    Ollama -->|Generate| Response[Response]
+    HF -->|Generate| Response
+    Response -->|Format| Backend
+    Backend -->|API Response| Frontend
+    Frontend -->|Display| User
+```
 
 ## Arabic Language Support
 
@@ -29,15 +62,16 @@ For detailed information about Arabic support, see [ARABIC_SUPPORT.md](ARABIC_SU
 ### Prerequisites
 
 - Python 3.8 or higher (tested with Python 3.12)
-- An Ollama server with access to the Llama 3.1 8B model
+- Ollama server with access to the Llama 3 model (`llama3:latest`)
+- GPU with at least 8GB VRAM for HuggingFace models (recommended)
 - Required Python packages (see requirements.txt)
 
 ### Installation
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/bilingual-faq-chatbot.git
-cd bilingual-faq-chatbot
+git clone https://github.com/yourusername/exodus-chatbot.git
+cd exodus-chatbot
 ```
 
 2. Install dependencies:
@@ -49,6 +83,44 @@ pip install -r requirements.txt
 ```bash
 python main.py
 ```
+
+## Model Configuration
+
+The chatbot supports a hybrid approach to model loading:
+
+### Ollama-based Models
+- **Llama 3**: Accessed through the Ollama API
+- Requires Ollama to be installed and running
+- Lower resource usage as models are managed by Ollama
+
+### HuggingFace-based Models
+- **Qwen3-8B-FP8**: Loaded directly from HuggingFace
+- Requires more RAM/VRAM but offers better integration
+- Quantized for efficiency (FP8 format)
+
+### Switching Between Models
+
+Models can be switched through:
+- The API endpoint: `POST /api/models/switch` with body `{"model_id": "model_name"}`
+- The chat interface in the frontend
+- Using the special command `/model model_name` in the chat
+
+### Model Integration Comparison
+
+| Feature | Ollama Integration | HuggingFace Direct Integration |
+|---------|-------------------|--------------------------------|
+| **Supported Models** | Llama3:latest | Qwen/Qwen3-8B-FP8 |
+| **Resource Usage** | Lower (managed by Ollama) | Higher (loaded in application memory) |
+| **Setup Complexity** | Requires Ollama installation | No additional software needed |
+| **Response Speed** | Slightly slower (API calls) | Faster (direct integration) |
+| **Customization** | Limited by Ollama API | Full control over model parameters |
+| **Quantization** | Managed by Ollama | FP8 quantization for efficiency |
+| **Memory Requirements** | ~2GB system RAM | ~8GB VRAM + ~4GB system RAM |
+| **Error Handling** | API-level error handling | Direct exception handling |
+
+The hybrid approach leverages the benefits of both integration methods:
+- Ollama for ease of use and lower resource requirements
+- HuggingFace for specialized models with direct integration and fine-tuned control
 
 ## Testing
 
@@ -69,7 +141,7 @@ This test verifies:
 - `SIMILARITY_THRESHOLD_AR`: Similarity threshold for Arabic queries (default: 0.3)
 - `SIMILARITY_THRESHOLD_EN`: Similarity threshold for English queries (default: 0.4)
 - `OLLAMA_BASE_URL`: URL for the Ollama service (default: http://localhost:11434)
-- `MODEL_NAME`: LLM model to use (default: llama3.1:8b)
+- `MODEL_NAME`: LLM model to use (default: llama3:latest)
 
 ## Frontend Configuration
 
@@ -137,6 +209,25 @@ This is caused by PyTorch trying to use CUDA in a forked subprocess. To fix this
    pip install pyOpenSSL
    ```
 
+### HuggingFace Model Loading Issues
+
+If you encounter issues loading the HuggingFace models:
+
+1. **Out of memory**: Try reducing batch size or using a smaller model
+   ```bash
+   export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:128
+   ```
+
+2. **Truncation warnings**: These are now fixed in the code but if they reappear:
+   ```python
+   pipeline = transformers.pipeline(..., truncation=True)
+   ```
+
+3. **No GPU detected**: Check CUDA installation
+   ```bash
+   python -c "import torch; print(torch.cuda.is_available(), torch.cuda.device_count())"
+   ```
+
 ### Frontend API Connection Issues
 
 If the frontend cannot connect to the API:
@@ -160,4 +251,86 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - Built using FastAPI, Sentence Transformers, and Ollama
 - Arabic language support powered by PyArabic, langdetect, and better_profanity
 - Optional advanced Arabic processing via AraBERT
+- Models from Meta (Llama3) and Alibaba (Qwen3)
 - Frontend built with React, Vite, and Axios
+
+## Model Loading Process
+
+The hybrid model approach follows this process when loading and switching between models:
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant API as API Layer
+    participant ModelSelector
+    participant HF as HuggingFace Pipeline
+    participant Ollama as Ollama API
+    
+    User->>API: Request to switch model
+    API->>ModelSelector: configure_model(model_name)
+    
+    alt Model is HuggingFace
+        ModelSelector->>HF: Load model from HuggingFace
+        HF->>HF: Load tokenizer
+        HF->>HF: Create pipeline with quantization
+        HF-->>ModelSelector: Return model instance
+    else Model is Ollama
+        ModelSelector->>Ollama: Pull model if needed
+        Ollama-->>ModelSelector: Model ready notification
+        ModelSelector->>Ollama: Create LLM with Ollama backend
+    end
+    
+    ModelSelector->>ModelSelector: Update LLM chains
+    ModelSelector->>ModelSelector: Release previous model
+    
+    alt Previous was HuggingFace
+        ModelSelector->>HF: Clear GPU cache
+    else Previous was Ollama
+        ModelSelector->>Ollama: Send unload request
+    end
+    
+    ModelSelector-->>API: Model switched successfully
+    API-->>User: Switch confirmed
+```
+
+This process ensures efficient resource management by properly unloading previous models before loading new ones. The implementation handles both HuggingFace models (loaded directly in the application process) and Ollama models (managed by the external Ollama service).
+
+## Model Selection Flow
+
+The chatbot uses a sophisticated model selection process to route queries to the appropriate model based on query type and context:
+
+```mermaid
+flowchart TD
+    UserQuery[User Query] --> LangDetect{Language Detection}
+    LangDetect -->|English| Moderate1[Content Moderation]
+    LangDetect -->|Arabic| Moderate2[Arabic Moderation]
+    
+    Moderate1 --> QueryType{Query Type}
+    Moderate2 --> QueryType
+    
+    QueryType -->|FAQ| FAQCheck{Similar FAQ exists?}
+    FAQCheck -->|Yes| FAQ[FAQ Retrieval]
+    FAQCheck -->|No| ModelSelect[Model Selection]
+    
+    QueryType -->|Conversation| MemoryCheck{Memory enabled?}
+    MemoryCheck -->|Yes| Memory[Retrieve Conversation History]
+    MemoryCheck -->|No| ModelSelect
+    Memory --> ModelSelect
+    
+    ModelSelect --> ModelSuitability{Select suitable model}
+    
+    ModelSuitability -->|Complex query| HF[Qwen Model via HF]
+    ModelSuitability -->|Simple query| Ollama[Llama3 via Ollama]
+    
+    FAQ --> ResponseFormat[Format Response]
+    HF --> ResponseFormat
+    Ollama --> ResponseFormat
+    
+    ResponseFormat --> UserInterface[Return to User]
+```
+
+This process ensures that:
+1. Queries are properly preprocessed based on language
+2. Similar FAQs are efficiently retrieved when available
+3. The appropriate model is selected based on query complexity
+4. All responses are properly formatted before returning to the user
