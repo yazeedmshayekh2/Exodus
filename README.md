@@ -84,7 +84,7 @@ npm install
 ```
 
 2. Start the development server:
-```bash
+```bashPOST
 npm run dev
 ```
 
