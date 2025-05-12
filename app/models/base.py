@@ -5,7 +5,7 @@ Base models for FAQ Chatbot
 from dataclasses import dataclass
 from typing import Optional
 import numpy as np
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 @dataclass
 class FAQEntry:
@@ -44,3 +44,31 @@ class ChatResponse(BaseModel):
     """
     response: str
     language: str
+
+class ModelIdRequest(BaseModel):
+    """
+    Request model for operations that only need a model ID.
+    
+    Attributes:
+        model_id (str): ID of the model to operate on
+    """
+    model_id: str = Field(..., description="ID of the model to operate on")
+
+class HuggingFaceModelRequest(BaseModel):
+    """
+    Request model for adding a model from HuggingFace.
+    
+    Attributes:
+        repo_id (str): HuggingFace repository ID
+        model_name (str): Name to use for the model in Ollama
+        display_name (str): Human-readable name for the model
+        description (str): Description of the model
+        context_length (int): Context window size
+        temperature (float): Default temperature
+    """
+    repo_id: str = Field(..., description="HuggingFace repository ID")
+    model_name: str = Field(..., description="Name to use for the model in Ollama")
+    display_name: str = Field(..., description="Human-readable name for the model")
+    description: str = Field(..., description="Description of the model")
+    context_length: int = Field(4096, description="Context window size")
+    temperature: float = Field(0.7, description="Default temperature")

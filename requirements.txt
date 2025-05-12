@@ -4,6 +4,7 @@ pyodbc
 sentence-transformers
 numpy
 langchain
+langchain-core
 langchain-ollama
 langdetect
 qdrant-client
@@ -23,3 +24,13 @@ arabert
 farasapy
 pyarabic
 tf-keras
+pymssql
+pytest
+pymupdf
+gunicorn
+passlib
+torch
+accelerate
+bitsandbytes
+safetensors
+ollama

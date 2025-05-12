@@ -1,7 +1,12 @@
 import axios from 'axios';
 
-// Try to access the API at both HTTP and HTTPS endpoints
-const API_URL = 'http://localhost:8000/api';
+// Get the API URL from environment or use a default
+// Fix: Use window._env_ instead of process.env to avoid "process is not defined" error in browser
+const API_URL = (window._env_ && window._env_.REACT_APP_API_URL) || (
+  window.location.hostname === 'localhost' 
+    ? 'http://localhost:8000/api' 
+    : '/api'
+);
 
 // Create a function to test API connectivity
 const testConnection = async () => {
@@ -60,6 +65,42 @@ const chatService = {
       return response.data;
     } catch (error) {
       console.error('Error switching model:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Add a new model from HuggingFace
+   * @param {Object} modelData - Model details
+   * @param {string} modelData.repo_id - HuggingFace repository ID
+   * @param {string} modelData.model_name - Name to use for the model in Ollama
+   * @param {string} modelData.display_name - Human-readable name for the model
+   * @param {string} modelData.description - Description of the model
+   * @param {number} [modelData.context_length=4096] - Context window size
+   * @param {number} [modelData.temperature=0.7] - Default temperature
+   * @returns {Promise<Object>} - Result of the add operation
+   */
+  addModelFromHuggingFace: async (modelData) => {
+    try {
+      const response = await axios.post(`${API_URL}/models/add`, modelData);
+      return response.data;
+    } catch (error) {
+      console.error('Error adding model from HuggingFace:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Remove a model
+   * @param {string} modelId - The ID of the model to remove
+   * @returns {Promise<Object>} - Result of the remove operation
+   */
+  removeModel: async (modelId) => {
+    try {
+      const response = await axios.post(`${API_URL}/models/remove`, { model_id: modelId });
+      return response.data;
+    } catch (error) {
+      console.error('Error removing model:', error);
       throw error;
     }
   },

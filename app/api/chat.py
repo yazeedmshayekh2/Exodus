@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse
 from typing import List, Dict, Any
 
 from app import app
-from app.models.base import ChatRequest, ChatResponse
+from app.models.base import ChatRequest, ChatResponse, ModelIdRequest, HuggingFaceModelRequest
 from app.core.enhanced_chatbot import EnhancedChatbot
 
 # Configure logging
@@ -67,18 +67,18 @@ async def list_models():
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/models/switch")
-async def switch_model(model_data: Dict[str, str]):
+async def switch_model(model_data: ModelIdRequest):
     """
     Switch the active model used by the chatbot
     
     Args:
-        model_data (Dict[str, str]): Dictionary containing the model_id
+        model_data (ModelIdRequest): Dictionary containing the model_id
         
     Returns:
         Dict[str, Any]: Result of the model switch operation
     """
     try:
-        model_id = model_data.get("model_id")
+        model_id = model_data.model_id
         if not model_id:
             raise HTTPException(status_code=400, detail="model_id is required")
             
@@ -95,4 +95,52 @@ async def switch_model(model_data: Dict[str, str]):
         raise
     except Exception as e:
         logger.error(f"Error switching model: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/models/add")
+async def add_model(model_data: HuggingFaceModelRequest):
+    """
+    Add a new model from HuggingFace
+    
+    Args:
+        model_data (HuggingFaceModelRequest): Details of the model to add
+        
+    Returns:
+        Dict[str, Any]: Result of the operation
+    """
+    try:
+        # We're using direct Hugging Face models now, so we can't add custom models
+        raise HTTPException(
+            status_code=400, 
+            detail="Adding custom models is not supported when using Hugging Face directly. The application now uses pre-configured models only."
+        )
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error adding model: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/models/remove")
+async def remove_model(model_data: ModelIdRequest):
+    """
+    Remove a model from the available models
+    
+    Args:
+        model_data (ModelIdRequest): ID of the model to remove
+        
+    Returns:
+        Dict[str, Any]: Result of the operation
+    """
+    try:
+        # We're using direct Hugging Face models now, so we can't remove models
+        raise HTTPException(
+            status_code=400, 
+            detail="Removing models is not supported when using Hugging Face directly. The application now uses pre-configured models only."
+        )
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error removing model: {e}")
         raise HTTPException(status_code=500, detail=str(e)) 

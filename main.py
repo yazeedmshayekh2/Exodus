@@ -12,7 +12,7 @@ Key components:
 - Ollama Llama 3.1 8B LLM as the brain of the chatbot.
 - Markdown formatting for responses.
 
-Built by: Basel Anaya | AI Engineer
+Built by: Yazeed Mshayekh | AI Engineer
 Date: 6/1/2025
 """
 

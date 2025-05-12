@@ -6,11 +6,21 @@ import os
 import logging
 from typing import Dict, List, Optional, Any
 import json
+import shutil
+import tempfile
+import subprocess
+import time
+import torch
 
 from langchain_ollama import OllamaLLM
 from langchain.prompts import PromptTemplate
 from langchain.schema import StrOutputParser
 from langchain.schema.runnable import RunnablePassthrough
+import transformers
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from langchain_core.language_models import LLM
+from langchain_core.callbacks.manager import CallbackManagerForLLMRun
+from langchain_core.pydantic_v1 import Field
 
 from app.core.chatbot import FAQChatbot
 from app.core.memory import ConversationMemory
@@ -19,6 +29,85 @@ from app.utils.moderation import moderate_content
 
 # Configure logging
 logger = logging.getLogger(__name__)
+
+class HuggingFaceTransformersLLM(LLM):
+    """
+    Wrapper around Hugging Face Transformers models.
+    """
+    model_name: str = Field(...)
+    tokenizer: Any = Field(default=None)
+    model: Any = Field(default=None)
+    pipeline: Any = Field(default=None)
+    max_length: int = Field(default=2048)
+    temperature: float = Field(default=0.7)
+    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._load_model()
+    
+    def _load_model(self):
+        """Load the model and tokenizer."""
+        try:
+            logger.info(f"Loading model and tokenizer from HuggingFace: {self.model_name}")
+            
+            self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+            
+            # Load model with appropriate precision based on available hardware
+            self.model = AutoModelForCausalLM.from_pretrained(
+                self.model_name,
+                torch_dtype=torch.bfloat16,
+                device_map="auto"
+            )
+            
+            # Create a pipeline for text generation
+            self.pipeline = transformers.pipeline(
+                "text-generation",
+                model=self.model,
+                tokenizer=self.tokenizer,
+                truncation=True,
+                max_new_tokens=self.max_length,
+                temperature=self.temperature
+            )
+            
+            logger.info(f"Successfully loaded HuggingFace model: {self.model_name}")
+        except Exception as e:
+            logger.error(f"Error loading HuggingFace model {self.model_name}: {e}")
+            raise
+    
+    def _call(self, prompt: str, stop: Optional[List[str]] = None, run_manager: Optional[CallbackManagerForLLMRun] = None, **kwargs) -> str:
+        """Generate text using the model."""
+        try:
+            logger.info(f"Generating text with HuggingFace model, input length: {len(prompt)}")
+            
+            # Generate text using the pipeline
+            outputs = self.pipeline(
+                prompt,
+                max_new_tokens=kwargs.get("max_new_tokens", self.max_length),
+                do_sample=True,
+                temperature=kwargs.get("temperature", self.temperature),
+                top_p=kwargs.get("top_p", 0.95),
+                top_k=kwargs.get("top_k", 50),
+                truncation=True,
+                return_full_text=False
+            )
+            
+            # Extract the generated text
+            generated_text = outputs[0]["generated_text"]
+            
+            # Apply stop sequences if provided
+            if stop:
+                for sequence in stop:
+                    if sequence in generated_text:
+                        generated_text = generated_text[:generated_text.find(sequence)]
+            
+            return generated_text
+        except Exception as e:
+            logger.error(f"Error generating text with HuggingFace model: {e}")
+            raise
+    
+    @property
+    def _llm_type(self) -> str:
+        return "huggingface_transformers"
 
 class EnhancedChatbot(FAQChatbot):
     """
@@ -32,35 +121,20 @@ class EnhancedChatbot(FAQChatbot):
     
     # Available models that can be used by the chatbot
     AVAILABLE_MODELS = {
-        "llama3:8b": {
-            "name": "Llama 3 8B",
-            "description": "Fast and efficient balanced model",
-            "context_length": 8192,
-            "temperature": 0.5,
-        },
         "llama3.1:8b": {
             "name": "Llama 3.1 8B",
-            "description": "Latest Llama model with improved capabilities",
-            "context_length": 8192,
-            "temperature": 0.5,
-        },
-        "mistral:7b": {
-            "name": "Mistral 7B",
-            "description": "Efficient model with strong reasoning capabilities",
+            "description": "Meta's Llama 3.1 8B model for general purpose tasks",
             "context_length": 8192,
             "temperature": 0.7,
+            "model_type": "ollama"
         },
-        "dolphin-phi3:7b": {
-            "name": "Dolphin Phi-3 7B",
-            "description": "Conversational model with helpful personality",
-            "context_length": 4096,
-            "temperature": 0.7,
-        },
-        "qwen3:8b": {
+        "Qwen/Qwen3-8B-FP8": {
             "name": "Qwen3 8B FP8",
-            "description": "Multi-mode LLM supporting thinking mode and non-thinking mode",
+            "description": "Alibaba's Qwen3 8B model with FP8 quantization supporting thinking mode",
             "context_length": 32768,
             "temperature": 0.6,
+            "truncation": True,
+            "model_type": "huggingface"
         }
     }
     
@@ -132,6 +206,7 @@ class EnhancedChatbot(FAQChatbot):
         
         # Set up model configuration AFTER defining prompts
         self.current_model = os.getenv('MODEL_NAME', 'llama3.1:8b')
+        self.previously_loaded_model = None
         self.configure_model(self.current_model)
         
         # Initialize chains after configure_model has set up the LLM
@@ -167,22 +242,62 @@ class EnhancedChatbot(FAQChatbot):
         
         logger.info(f"Configuring chatbot to use model: {model_name}")
         
+        # If it's the same model as current, no need to reload
+        if model_name == self.current_model:
+            logger.info(f"Model {model_name} is already loaded and active")
+            return True
+        
+        # Store current model to unload it after successful switch
+        old_model = self.previously_loaded_model
+        
         # Update model configuration
         model_config = self.AVAILABLE_MODELS[model_name]
-        self.current_model = model_name
+        previous_model = self.current_model
         
-        # Create new LLM with updated configuration
+        # Create new LLM with updated configuration based on model type
         try:
-            self.llm = OllamaLLM(
-                base_url=os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434'),
-                model=model_name,
-                temperature=model_config.get("temperature", 0.5),
-                top_p=0.95,
-                num_ctx=model_config.get("context_length", 4096),
-                num_predict=-1
-            )
+            model_type = model_config.get("model_type", "ollama")
+            
+            if model_type == "huggingface":
+                logger.info(f"Creating Hugging Face Transformers LLM with model {model_name}")
+                
+                # Create a HuggingFaceTransformersLLM instance
+                self.llm = HuggingFaceTransformersLLM(
+                    model_name=model_name,
+                    max_length=model_config.get("context_length", 4096),
+                    temperature=model_config.get("temperature", 0.7)
+                )
+            else:  # Default to Ollama
+                logger.info(f"Creating Ollama LLM with model {model_name}")
+                
+                # Try to pull the model if needed
+                try:
+                    command = f"ollama pull {model_name}"
+                    logger.info(f"Pulling Ollama model {model_name} if needed")
+                    pull_result = subprocess.run(command, shell=True, capture_output=True, text=True)
+                    if pull_result.returncode != 0:
+                        logger.warning(f"Failed to pull Ollama model {model_name}: {pull_result.stderr}")
+                        # Continue anyway, as the model might already be available
+                except Exception as pull_err:
+                    logger.warning(f"Error pulling Ollama model {model_name}: {pull_err}")
+                    # Continue anyway
+                
+                # Create Ollama LLM
+                base_url = os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434')
+                self.llm = OllamaLLM(
+                    base_url=base_url,
+                    model=model_name,
+                    temperature=model_config.get("temperature", 0.7),
+                    top_p=0.95,
+                    num_ctx=model_config.get("context_length", 4096),
+                    num_predict=-1
+                )
+            
+            # Update current model only after successful LLM creation
+            self.current_model = model_name
             
             # Update all chains that use the LLM
+            logger.info("Updating all LLM chains")
             self.intent_chain = (
                 RunnablePassthrough() |
                 self.intent_prompt |
@@ -211,16 +326,9 @@ class EnhancedChatbot(FAQChatbot):
                 StrOutputParser()
             )
             
-            self.inappropriate_chain = (
+            self.query_type_chain = (
                 RunnablePassthrough() |
-                self.inappropriate_prompt |
-                self.llm |
-                StrOutputParser()
-            )
-            
-            self.how_are_you_chain = (
-                RunnablePassthrough() |
-                self.how_are_you_prompt |
+                self.query_type_prompt |
                 self.llm |
                 StrOutputParser()
             )
@@ -232,17 +340,41 @@ class EnhancedChatbot(FAQChatbot):
                 StrOutputParser()
             )
             
-            self.query_type_chain = (
-                RunnablePassthrough() |
-                self.query_type_prompt |
-                self.llm |
-                StrOutputParser()
-            )
+            # Handle previous model cleanup based on model type
+            if old_model and old_model != model_name:
+                old_model_config = self.AVAILABLE_MODELS.get(old_model, {})
+                old_model_type = old_model_config.get("model_type", "ollama")
+                
+                if old_model_type == "huggingface" and hasattr(torch, 'cuda'):
+                    logger.info(f"Clearing previous HuggingFace model from GPU memory: {old_model}")
+                    try:
+                        # Force garbage collection to clear memory
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+                    except Exception as e:
+                        logger.warning(f"Error clearing GPU memory: {e}")
+                elif old_model_type == "ollama":
+                    logger.info(f"Unloading previous Ollama model: {old_model}")
+                    # Give a moment for the new model to initialize fully
+                    time.sleep(1)
+                    try:
+                        # Try unloading via Ollama API
+                        base_url = os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434')
+                        api_command = f"curl -X DELETE {base_url}/api/remove -d '{{\"name\":\"{old_model}\"}}'"
+                        subprocess.run(api_command, shell=True, capture_output=True, text=True)
+                        logger.info(f"Sent unload request for Ollama model: {old_model}")
+                    except Exception as unload_err:
+                        logger.warning(f"Error unloading Ollama model {old_model}: {unload_err}")
+            
+            # Save currently loaded model name
+            self.previously_loaded_model = model_name
             
             logger.info(f"Successfully configured model: {model_name}")
             return True
         except Exception as e:
             logger.error(f"Error configuring model: {e}")
+            # Revert to previous model in case of failure
+            self.current_model = previous_model
             return False
     
     def list_available_models(self) -> List[Dict[str, Any]]:
@@ -257,10 +389,25 @@ class EnhancedChatbot(FAQChatbot):
                 "id": model_id,
                 "name": config["name"],
                 "description": config["description"],
-                "current": model_id == self.current_model
+                "current": model_id == self.current_model,
+                "model_type": config.get("model_type", "ollama")
             }
             for model_id, config in self.AVAILABLE_MODELS.items()
         ]
+    
+    def remove_model(self, model_name: str) -> bool:
+        """
+        Remove a model from the available models
+        
+        Args:
+            model_name (str): Name of the model to remove
+            
+        Returns:
+            bool: Whether the model was successfully removed
+        """
+        # For safety, don't allow removing any models
+        logger.warning(f"Cannot remove built-in model {model_name}")
+        return False
     
     def format_history(self, history: List[Dict[str, str]]) -> str:
         """
