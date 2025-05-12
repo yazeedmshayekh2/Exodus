@@ -44,7 +44,7 @@ from app.utils.ssl import generate_self_signed_cert
 from app.utils.tunnel import setup_ngrok
 
 # Import API routes - ensure imports are executed, not just specified
-from app.api import chat, debug, test
+from app.api import chat, debug
 
 # Setup middleware
 app.middleware("http")(log_requests)
