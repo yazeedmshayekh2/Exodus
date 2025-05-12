@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 // Try to access the API at both HTTP and HTTPS endpoints
-const API_URL = 'http://localhost:8080/api';
+const API_URL = 'http://localhost:8000/api';
 
 // Create a function to test API connectivity
 const testConnection = async () => {
@@ -31,6 +31,35 @@ const chatService = {
       return response.data;
     } catch (error) {
       console.error('Error sending chat query:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Get available models that can be used with the chatbot
+   * @returns {Promise<Array>} - List of available models with details
+   */
+  getAvailableModels: async () => {
+    try {
+      const response = await axios.get(`${API_URL}/models`);
+      return response.data.models;
+    } catch (error) {
+      console.error('Error getting available models:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Switch to a different model
+   * @param {string} modelId - The ID of the model to switch to
+   * @returns {Promise<Object>} - Result of the model switch operation
+   */
+  switchModel: async (modelId) => {
+    try {
+      const response = await axios.post(`${API_URL}/models/switch`, { model_id: modelId });
+      return response.data;
+    } catch (error) {
+      console.error('Error switching model:', error);
       throw error;
     }
   },

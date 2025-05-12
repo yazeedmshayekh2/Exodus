@@ -7,6 +7,12 @@ import logging
 import subprocess
 import ssl
 
+# Backport SSLWantReadError for Python 3.12 compatibility
+if not hasattr(ssl, 'SSLWantReadError'):
+    class SSLWantReadError(ssl.SSLError):
+        pass
+    ssl.SSLWantReadError = SSLWantReadError
+
 # Configure logging
 logger = logging.getLogger(__name__)
 

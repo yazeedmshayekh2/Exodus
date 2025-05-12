@@ -1,153 +1,163 @@
-# Exodus - Multilingual FAQ Chatbot with React Frontend
+# Bilingual FAQ Chatbot with Arabic Support
 
-This project implements a modern FAQ chatbot system with a React frontend and FastAPI backend. It supports multiple languages and uses advanced NLP techniques for semantic search and response generation.
+A production-ready chatbot API that provides bilingual support for English and Arabic questions using semantic search and LLM-powered responses.
 
 ## Features
 
-- **Modern React Frontend** with beautiful UI/UX
-- **FastAPI Backend** with CORS and security middleware
-- **Multilingual Support** with automatic language detection
-- **Advanced NLP Features:**
-  - Semantic search using Sentence Transformers
-  - Local vector similarity search with Qdrant
-  - Integration with Ollama LLM for natural responses
-- **Security & Infrastructure:**
-  - SSL support with self-signed certificates
-  - Comprehensive logging system
-  - Docker support for easy deployment
-  - Environment-based configuration
+- **Bilingual Support**: Handles both English and Arabic queries with dedicated optimization for each language
+- **Content Moderation**: Built-in profanity and inappropriate content filtering for both languages
+- **Automatic Language Detection**: Automatically detects the language of user input
+- **Optimized Arabic Processing**: Specialized text processing for Arabic including diacritics handling and letter normalization
+- **Semantic Search**: Uses sentence transformers to find the most relevant answers
+- **LLM Integration**: Uses Llama 3.1 (8B model) for response generation
+- **Graceful Degradation**: Falls back to simpler processing when advanced Arabic NLP tools aren't available
 
-## Tech Stack
+## Arabic Language Support
 
-### Frontend
-- React.js
-- Modern UI components
-- Responsive design
+This chatbot features comprehensive Arabic language capabilities:
 
-### Backend
-- FastAPI
-- Sentence Transformers (MPNet-base-v2)
-- Qdrant vector database
-- Ollama LLM integration
-- Langchain for LLM operations
+- Language detection for Arabic text
+- Arabic text preprocessing (diacritics removal, letter normalization)
+- Arabic content moderation with custom profanity lists
+- Optional AraBERT integration for advanced Arabic NLP when available
+- Optimized similarity thresholds specific to Arabic text
 
-## Requirements
+For detailed information about Arabic support, see [ARABIC_SUPPORT.md](ARABIC_SUPPORT.md).
 
-- Python 3.8+
-- Node.js and npm (for frontend)
-- Ollama server (local or remote)
-- OpenSSL (for SSL certificates)
+## Getting Started
 
-## Installation
+### Prerequisites
 
-1. **Clone the repository:**
+- Python 3.8 or higher (tested with Python 3.12)
+- An Ollama server with access to the Llama 3.1 8B model
+- Required Python packages (see requirements.txt)
+
+### Installation
+
+1. Clone the repository:
 ```bash
-git clone <repository-url>
-cd Exodus
+git clone https://github.com/yourusername/bilingual-faq-chatbot.git
+cd bilingual-faq-chatbot
 ```
 
-2. **Install backend dependencies:**
+2. Install dependencies:
 ```bash
 pip install -r requirements.txt
 ```
 
-3. **Install frontend dependencies:**
+3. Run the server:
+```bash
+python main.py
+```
+
+## Testing
+
+To test the Arabic language capabilities:
+```bash
+python arabic_test.py
+```
+
+This test verifies:
+- Arabic language detection
+- Profanity filtering for Arabic text
+- Arabic text preprocessing functionality
+- Basic Arabic string handling
+
+## Environment Variables
+
+- `ENABLE_ARABIC`: Enable Arabic language support (default: true)
+- `SIMILARITY_THRESHOLD_AR`: Similarity threshold for Arabic queries (default: 0.3)
+- `SIMILARITY_THRESHOLD_EN`: Similarity threshold for English queries (default: 0.4)
+- `OLLAMA_BASE_URL`: URL for the Ollama service (default: http://localhost:11434)
+- `MODEL_NAME`: LLM model to use (default: llama3.1:8b)
+
+## Frontend Configuration
+
+The chatbot includes a React-based frontend that communicates with the backend API:
+
+### Setup
+
+1. Install frontend dependencies:
 ```bash
 cd frontend
 npm install
 ```
 
-4. **Environment Setup:**
-Create a `.env` file in the root directory with your configuration:
-```env
-# Server Configuration
-HOST=0.0.0.0
-PORT=8000
-LOG_LEVEL=INFO
-
-# SSL Configuration
-USE_SSL=true
-SSL_CERT_DIR=./ssl
-
-# LLM Configuration
-OLLAMA_BASE_URL=http://localhost:11434
-MODEL_NAME=llama3.1:8b
-```
-
-## Running the Application
-
-1. **Start the backend:**
+2. Start the development server:
 ```bash
-python main.py
+npm run dev
 ```
 
-2. **Start the frontend development server:**
-```bash
-cd frontend
-npm start
-```
+3. Access the UI at http://localhost:3000
 
-The application will be available at:
-- Frontend: `http://localhost:3000`
-- Backend API: `https://localhost:8000`
-- API documentation: `https://localhost:8000/docs`
+### Configuration Settings
 
-## Project Structure
-```
-Exodus/
-├── frontend/          # React frontend application
-├── app/              # FastAPI backend application
-├── src/              # Core backend logic
-├── assets/           # Static assets
-├── ssl/              # SSL certificates
-├── requirements.txt  # Python dependencies
-└── Dockerfile       # Docker configuration
-```
+The frontend is configured to connect to the backend API via:
 
-## API Endpoints
+- Direct API calls to `http://localhost:8000/api` (configured in `frontend/src/api/chatService.js`)
+- Development proxy from `/api` to `http://localhost:8000` (configured in `frontend/vite.config.js`)
 
-- **Chat API**: `POST /chat/`
-  ```json
-  {
-    "query": "Your question here"
-  }
-  ```
-- **System endpoints:**
-  - Health check: `GET /health`
-  - API documentation: `GET /docs`
-
-## Development
-
-- The project uses Python for the backend and React for the frontend
-- All API endpoints are documented using OpenAPI (Swagger)
-- Frontend development follows React best practices
-- Backend includes comprehensive logging and error handling
-
-## Docker Support
-
-Build and run using Docker:
-```bash
-docker build -t exodus-chatbot .
-docker run -p 8000:8000 exodus-chatbot
-```
-
-## Security
-
-- SSL encryption for API communication
-- Environment-based configuration
-- Secure headers and CORS protection
-- Comprehensive error logging
+If you change the backend port, make sure to update both these configuration files.
 
 ## Troubleshooting
 
-- **SSL Issues**: Delete the `./ssl` directory to regenerate certificates
-- **Frontend Build**: Ensure all npm dependencies are installed
-- **Backend Errors**: Check the `error.log` file for detailed logs
+### CUDA/Model Initialization Issues
+
+If you encounter an error like:
+```
+Error in find_most_similar_faq: Cannot re-initialize CUDA in forked subprocess. To use CUDA with multiprocessing, you must use the 'spawn' start method
+```
+
+This is caused by PyTorch trying to use CUDA in a forked subprocess. To fix this:
+
+1. Make sure you're running with a single worker:
+   ```bash
+   # The app now defaults to one worker, but you can force it:
+   python main.py
+   ```
+
+2. If the issue persists, modify multiprocessing settings:
+   ```python
+   # This is now included in main.py:
+   import multiprocessing
+   multiprocessing.set_start_method('spawn', force=True)
+   ```
+
+3. Or set these environment variables before running:
+   ```bash
+   export CUDA_VISIBLE_DEVICES=""  # Disables CUDA
+   export TOKENIZERS_PARALLELISM=false  # Disables parallel tokenization
+   python main.py
+   ```
+
+4. For Python 3.12 users:
+   If SSL-related errors occur, try replacing openssl-python with pyOpenSSL:
+   ```bash
+   pip uninstall openssl-python
+   pip install pyOpenSSL
+   ```
+
+### Frontend API Connection Issues
+
+If the frontend cannot connect to the API:
+
+1. Verify the backend server is running at the expected port (default: 8000)
+2. Check the API URL in `frontend/src/api/chatService.js` 
+3. Ensure the proxy configuration in `frontend/vite.config.js` matches the backend port
+4. Check for CORS errors in the browser console and verify CORS is properly enabled in the backend
+
+## Documentation
+
+- [ARABIC_SUPPORT.md](ARABIC_SUPPORT.md): Detailed information about Arabic language support
+- API documentation is available at `/api/docs` when the server is running
 
 ## License
 
-[MIT License](LICENSE)
+This project is licensed under the MIT License - see the LICENSE file for details.
 
-## Author
+## Acknowledgments
 
-Yazeed Mshayekh and Basel Anaya | AI Engineers
+- Built using FastAPI, Sentence Transformers, and Ollama
+- Arabic language support powered by PyArabic, langdetect, and better_profanity
+- Optional advanced Arabic processing via AraBERT
+- Frontend built with React, Vite, and Axios

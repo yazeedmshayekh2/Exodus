@@ -22,6 +22,7 @@ from qdrant_client.http.models import Distance, VectorParams
 from app.models.base import FAQEntry
 from app.data.database import connect_to_database
 from app.core.response import format_response, get_fallback_response
+from app.utils.moderation import moderate_content
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -89,13 +90,33 @@ class FAQChatbot:
         # Intent classification prompt
         self.intent_prompt = PromptTemplate(
             input_variables=["query"],
-            template="""Analyze the user's message and determine if it's a greeting/conversation starter or a question/request.
-            
+            template="""Analyze the user's message and determine which type of message it is.
+            Be very permissive and ensure common conversational phrases are properly handled.
+
             User message: {query}
+
+            Guidelines:
+            - ALWAYS classify "how are you", "how's it going", "what's up" as CHITCHAT
+            - Questions about wellbeing, status, or other casual conversation should be CHITCHAT
+            - Only classify as INAPPROPRIATE if it contains explicit profanity or clearly offensive content
+            - Classify as GREETING only if it's a pure greeting with no question ("hello", "hi", etc.)
+            - Classify as QUESTION if it asks for specific information or help
             
-            Respond with either:
-            GREETING - if it's a greeting or conversation starter
-            QUESTION - if it's a question or request for information
+            Examples:
+            "hello" -> GREETING
+            "how are you" -> CHITCHAT
+            "how are you doing" -> CHITCHAT
+            "what's up" -> CHITCHAT
+            "how is it going" -> CHITCHAT
+            "tell me about your services" -> QUESTION
+            
+            Respond with one of the following categories:
+            GREETING - if it's only a greeting or introduction with no question
+            QUESTION - if it contains a request for specific information or help
+            CHITCHAT - if it's casual conversation like "how are you", wellbeing questions, etc.
+            INAPPROPRIATE - if it contains explicit profanity or clearly offensive content (use sparingly)
+            
+            When in doubt between QUESTION and CHITCHAT, classify as CHITCHAT for better conversation flow.
             
             Response:"""
         )
@@ -112,7 +133,7 @@ class FAQChatbot:
         self.faq_prompt = PromptTemplate(
             input_variables=["question_en", "answer_en", "question_ar", "answer_ar", 
                            "language", "user_query"],
-            template="""You are a friendly and professional customer service assistant. Act naturally and respond directly to user queries.
+            template="""You are a friendly and professional customer service assistant. Act naturally and respond directly to user queries. ONLY provide information based on the FAQ match provided.
 
             FAQ Match:
             EN Q: {question_en}
@@ -125,9 +146,11 @@ class FAQChatbot:
 
             Instructions:
             1. If FAQ match exists (both question and answer are not empty):
-               - Answer directly and naturally using the FAQ information
+               - Answer directly and naturally using ONLY the FAQ information
                - Keep the original information accurate
                - Use a conversational tone
+               - DO NOT make up or invent information that is not in the FAQ
+               - If the user's query asks for details not in the FAQ, state clearly that you don't have that specific information
                
             2. Format your response with proper line breaks and spacing:
                - Start with the title/heading
@@ -150,8 +173,8 @@ class FAQChatbot:
                - NO signatures, names, or titles
 
             5. If NO FAQ match (empty question or answer):
-               AR: "عذراً، أقترح التواصل مع فريق خدمة العملاء للحصول على المساعدة المتخصصة."
-               EN: "I apologize, I recommend contacting our customer service team for specialized assistance."
+               AR: "عذراً، لا أملك معلومات كافية حول هذا الموضوع. يمكنك التواصل مع فريق خدمة العملاء للحصول على المساعدة المتخصصة."
+               EN: "I apologize, I don't have enough information about this topic. You can contact our customer service team for specialized assistance."
 
             Remember:
             - Be direct and concise
@@ -159,7 +182,70 @@ class FAQChatbot:
             - No meta-commentary
             - Keep responses focused
             - Always add proper spacing around bold text (** text **)
+            - ONLY provide information from the FAQ match, never invent or assume details
 
+            Response:"""
+        )
+        
+        # Chitchat response prompt
+        self.chitchat_prompt = PromptTemplate(
+            input_variables=["language", "query"],
+            template="""Generate a friendly, brief conversational response to the user's casual message.
+            
+            User message: {query}
+            Language: {language}
+            
+            Guidelines:
+            - For English: Be friendly, warm and conversational
+            - For Arabic: Be culturally appropriate and friendly
+            - ALWAYS respond appropriately to questions like "how are you", "what's up", etc.
+            - If asked about wellbeing ("how are you"), RESPOND with your status (e.g., "I'm doing great, thanks for asking!")
+            - Keep it simple and natural (1-2 sentences)
+            - Be conversational and engaging
+            - Don't ask complex questions
+            - Don't provide specialized information
+            - For Arabic, use formal but friendly Arabic
+            
+            Examples:
+            If user asks "how are you" -> respond with "I'm doing great, thanks for asking! How can I help you today?"
+            If user asks "what's up" -> respond with "Not much, just here to assist you! What can I help you with?"
+            
+            Response:"""
+        )
+        
+        # How are you response prompt (specific for common wellbeing questions)
+        self.how_are_you_prompt = PromptTemplate(
+            input_variables=["language"],
+            template="""Generate a friendly response to "how are you" or similar wellbeing questions.
+            
+            Language: {language}
+            
+            Guidelines:
+            - Be warm, friendly and enthusiastic
+            - ALWAYS respond with your status (e.g. "I'm doing well") 
+            - Include a question about how you can help
+            - Keep it simple (2 sentences maximum)
+            - For Arabic, be culturally appropriate but friendly
+            
+            Output ONLY the response, nothing else.
+            
+            Response:"""
+        )
+        
+        # Inappropriate content response prompt
+        self.inappropriate_prompt = PromptTemplate(
+            input_variables=["language"],
+            template="""Generate a polite but firm response declining to engage with inappropriate content.
+            
+            Language: {language}
+            
+            Guidelines:
+            - Be polite but direct
+            - Do not repeat or reference the inappropriate content
+            - Redirect to appropriate topics
+            - For Arabic, use formal Arabic
+            - Keep it brief (1-2 sentences)
+            
             Response:"""
         )
         
@@ -172,7 +258,7 @@ class FAQChatbot:
             
             Guidelines:
             - For English: Be friendly and professional
-            - For Arabic: Be culturally appropriate and professional
+            - For Arabic: Be culturally appropriate and professional (use appropriate Islamic greetings if in Arabic)
             - Keep it simple and natural
             - Don't add meta-commentary
             - Don't ask specific questions
@@ -195,12 +281,33 @@ class FAQChatbot:
             StrOutputParser()
         )
         
+        self.chitchat_chain = (
+            RunnablePassthrough() |
+            self.chitchat_prompt |
+            self.llm |
+            StrOutputParser()
+        )
+        
+        self.inappropriate_chain = (
+            RunnablePassthrough() |
+            self.inappropriate_prompt |
+            self.llm |
+            StrOutputParser()
+        )
+        
+        self.how_are_you_chain = (
+            RunnablePassthrough() |
+            self.how_are_you_prompt |
+            self.llm |
+            StrOutputParser()
+        )
+        
         # Initialize state and memory
         self.conversation_memory = {}
         self.conversation_state = {}
         self.similarity_threshold = {
-            'ar': 0.3,
-            'en': 0.4
+            'ar': 0.20,  # Much lower threshold for Arabic to be more permissive
+            'en': 0.25   # Lower threshold for English to increase match rate
         }
     
     def init_qdrant(self):
@@ -451,7 +558,25 @@ class FAQChatbot:
             if not text:
                 return 'en'  # Default to English for empty text
             
-            # Try langdetect first
+            # Arabic character detection (more reliable for Arabic than langdetect)
+            # Check for Arabic characters (standard Arabic Unicode range)
+            arabic_char_count = sum(1 for c in text if '\u0600' <= c <= '\u06FF')
+            
+            # Check for additional Arabic-related character ranges
+            # Arabic Supplement and Extended-A
+            arabic_extended_count = sum(1 for c in text if '\u0750' <= c <= '\u077F' or '\u08A0' <= c <= '\u08FF')
+            
+            # Arabic Presentation Forms
+            arabic_pres_count = sum(1 for c in text if '\uFB50' <= c <= '\uFDFF' or '\uFE70' <= c <= '\uFEFF')
+            
+            # Total Arabic character count
+            total_arabic = arabic_char_count + arabic_extended_count + arabic_pres_count
+            
+            # If significant Arabic content (at least 20% of characters or at least 2 chars in short texts)
+            if total_arabic >= max(0.2 * len(text), 2):
+                return 'ar'
+            
+            # Try langdetect for non-Arabic text
             try:
                 detected = detect(text)
                 if detected == 'ar':
@@ -461,11 +586,19 @@ class FAQChatbot:
             except:
                 pass  # Continue to fallback if langdetect fails
             
-            # Fallback: Check for Arabic characters
-            if any('\u0600' <= c <= '\u06FF' for c in text):
-                return 'ar'
+            # Common Arabic transliterated/Arabizi words (for mixed Arabic/English text)
+            arabizi_patterns = [
+                r'\b(salam|ahlan|marhaba|shukran|afwan|yalla|habibi|habibti|inshallah|mashallah|wallah)\b',
+                r'\b(sabah|masa|alkhair|alnour|assalamu|alaikum|mabrook|mabruk|alhamdulillah)\b',
+                r'\b(ana|anta|anti|howa|heya|3an|min|ila|bil|fee|ma3|bas|khalas|akeed|tab|tayeb)\b'
+            ]
             
-            # Default to English if no Arabic detected
+            # Check for Arabizi patterns with Arabic numerals (3=ع, 7=ح, 5=خ, etc.)
+            for pattern in arabizi_patterns:
+                if re.search(pattern, text.lower()):
+                    return 'ar'  # Consider this Arabic if Arabizi detected
+            
+            # Default to English if nothing else matched
             return 'en'
             
         except Exception as e:
@@ -487,19 +620,110 @@ class FAQChatbot:
             language = self.detect_language(query)
             logger.info(f"Processing query: '{query}' (Language: {language})")
             
+            # Check for common conversational phrases directly
+            lower_query = query.lower().strip()
+            
+            # How are you phrases (check these first and give priority)
+            how_are_you_phrases = [
+                "how are you", "how are you doing", "how are you today", "how's it going", 
+                "what's up", "how do you do", "how have you been", "how is everything"
+            ]
+            
+            arabic_how_are_you = [
+                "كيف حالك", "كيفك", "شلونك", "اخبارك", "كيف الحال", "عامل ايه", "ازيك"
+            ]
+            
+            # Other casual chitchat phrases
+            other_chitchat = [
+                "nice to meet you", "good to see you", "what can you do", 
+                "tell me about yourself", "who are you"
+            ]
+            
+            arabic_other_chitchat = [
+                "تشرفنا", "سعيد بلقائك", "ماذا يمكنك أن تفعل", "من أنت", "عرفني بنفسك"
+            ]
+            
+            # Handle "how are you" with dedicated response
+            is_how_are_you = False
+            if any(phrase in lower_query for phrase in how_are_you_phrases):
+                logger.info("Direct detection of 'how are you' phrase")
+                is_how_are_you = True
+            elif any(phrase in query for phrase in arabic_how_are_you):
+                logger.info("Direct detection of Arabic 'how are you' phrase")
+                is_how_are_you = True
+                
+            if is_how_are_you:
+                logger.info("Generating 'how are you' response")
+                
+                # Hardcoded responses for "how are you" to ensure consistent quality
+                if language == 'ar':
+                    hardcoded_responses = [
+                        "أنا بخير، شكراً على سؤالك! كيف يمكنني مساعدتك اليوم؟",
+                        "الحمد لله، أنا بخير. سعيد بالتحدث معك. كيف يمكنني خدمتك؟",
+                        "بخير والحمد لله! أنا هنا لمساعدتك في أي استفسار."
+                    ]
+                    response = hardcoded_responses[hash(query) % len(hardcoded_responses)]
+                else:
+                    hardcoded_responses = [
+                        "I'm doing great, thanks for asking! How can I help you today?",
+                        "I'm very well, thank you! What can I assist you with?",
+                        "I'm doing well! I'm here to help you with any questions you might have."
+                    ]
+                    response = hardcoded_responses[hash(query) % len(hardcoded_responses)]
+                
+                return format_response(response, language)
+            
+            # Handle other chitchat
+            is_other_chitchat = False
+            if any(phrase in lower_query for phrase in other_chitchat):
+                logger.info("Direct detection of other chitchat phrase")
+                is_other_chitchat = True
+            elif any(phrase in query for phrase in arabic_other_chitchat):
+                logger.info("Direct detection of Arabic chitchat phrase")
+                is_other_chitchat = True
+            
+            if is_other_chitchat:
+                logger.info("Processing other chitchat response")
+                response = self.chitchat_chain.invoke({"language": language, "query": query})
+                return format_response(response, language)
+            
+            # More permissive moderation check - only block highly confident detections
+            is_inappropriate, reason = moderate_content(query)
+            if is_inappropriate and reason == "profanity":  # Only block explicit profanity
+                logger.warning(f"Inappropriate content detected: {reason}")
+                response = self.inappropriate_chain.invoke({"language": language})
+                return format_response(response, language)
+            
             # Determine intent
             intent = self.intent_chain.invoke({"query": query}).strip().upper()
             logger.info(f"Detected intent: {intent}")
             
+            # Handle different intent types
             if intent == "GREETING":
                 logger.info("Processing greeting response")
                 response = self.greeting_chain.invoke({"language": language})
                 return format_response(response, language)
             
-            # Process as FAQ query
+            elif intent == "CHITCHAT":
+                logger.info("Processing chitchat response")
+                response = self.chitchat_chain.invoke({"language": language, "query": query})
+                return format_response(response, language)
+                
+            elif intent == "INAPPROPRIATE":
+                # Double-check with our moderation before rejecting
+                if is_inappropriate:
+                    logger.info("Processing response to inappropriate content")
+                    response = self.inappropriate_chain.invoke({"language": language})
+                    return format_response(response, language)
+                else:
+                    # Override with question handling if our moderation didn't flag it
+                    intent = "QUESTION"
+                    logger.info("Overriding INAPPROPRIATE intent to QUESTION")
+            
+            # Process as FAQ query (QUESTION intent or default)
             logger.info("Searching for FAQ matches...")
             best_match, similarity = self.find_most_similar_faq(query, language)
-            threshold = self.similarity_threshold[language]  # Use the correct threshold from instance variable
+            threshold = self.similarity_threshold[language]
             
             # Debug logging
             logger.info(f"Query: '{query}'")
@@ -507,28 +731,88 @@ class FAQChatbot:
             logger.info(f"Similarity score: {similarity}")
             logger.info(f"Using threshold: {threshold} for language: {language}")
             
-            if best_match and similarity > threshold:
-                logger.info("Found matching FAQ - generating response")
-                logger.info(f"Matched Question (EN): {best_match.question_en}")
-                logger.info(f"Matched Question (AR): {best_match.question_ar}")
-                logger.info(f"Answer (EN): {best_match.answer_en[:100]}...")  # Log first 100 chars of answer
+            # If we have a match (even a low confidence one), try to use it
+            if best_match:
+                # For stronger matches, use the FAQ directly
+                if similarity > threshold:
+                    logger.info("Found good matching FAQ - generating direct response")
+                    logger.info(f"Matched Question (EN): {best_match.question_en}")
+                    logger.info(f"Matched Question (AR): {best_match.question_ar}")
+                    
+                    # Use the chain to process the response
+                    chain_input = {
+                        "question_en": best_match.question_en,
+                        "answer_en": best_match.answer_en,
+                        "question_ar": best_match.question_ar,
+                        "answer_ar": best_match.answer_ar,
+                        "language": language,
+                        "user_query": query
+                    }
+                    response = self.faq_chain.invoke(chain_input)
+                    logger.info("Generated direct FAQ response")
+                    return format_response(response, language)
                 
-                # Use the chain to process the response
-                chain_input = {
-                    "question_en": best_match.question_en,
-                    "answer_en": best_match.answer_en,
-                    "question_ar": best_match.question_ar,
-                    "answer_ar": best_match.answer_ar,
-                    "language": language,
-                    "user_query": query
-                }
-                response = self.faq_chain.invoke(chain_input)
-                logger.info("Generated FAQ response")
-            else:
-                logger.info(f"No matching FAQ found (score: {similarity} < threshold: {threshold})")
-                # Return fallback response
-                response = get_fallback_response(language)
+                # For weaker matches, provide a modified response that indicates uncertainty
+                elif similarity > (threshold * 0.7):  # Lower secondary threshold
+                    logger.info("Found partial FAQ match - generating qualified response")
+                    
+                    # Generate a "not sure but here's what I found" response
+                    uncertain_prompt = PromptTemplate(
+                        input_variables=["question_en", "answer_en", "question_ar", "answer_ar", 
+                                      "language", "user_query"],
+                        template="""You are a helpful customer service assistant. The user's question doesn't exactly match our FAQs,
+                        but there is a somewhat related answer that might be useful.
+                        
+                        Most similar FAQ:
+                        EN Q: {question_en}
+                        EN A: {answer_en}
+                        AR Q: {question_ar}
+                        AR A: {answer_ar}
+                        
+                        User query: {user_query}
+                        Language: {language}
+                        
+                        Provide a response that:
+                        1. Acknowledges that you don't have an exact answer to their specific question
+                        2. Offers the related information that might be helpful
+                        3. Is conversational and helpful, not formal
+                        4. Uses the FAQ content but clarifies this isn't an exact match for their question
+                        
+                        For Arabic, be culturally appropriate.
+                        
+                        Response:"""
+                    )
+                    
+                    uncertain_chain = (
+                        RunnablePassthrough() | 
+                        uncertain_prompt | 
+                        self.llm | 
+                        StrOutputParser()
+                    )
+                    
+                    # Create input with the partial match
+                    chain_input = {
+                        "question_en": best_match.question_en,
+                        "answer_en": best_match.answer_en,
+                        "question_ar": best_match.question_ar,
+                        "answer_ar": best_match.answer_ar,
+                        "language": language,
+                        "user_query": query
+                    }
+                    
+                    response = uncertain_chain.invoke(chain_input)
+                    logger.info("Generated qualified response from partial match")
+                    return format_response(response, language)
             
+            # For casual conversation that's not a greeting, provide a conversational response
+            if len(query.split()) < 5 or "?" not in query:
+                logger.info("Short query without question mark - treating as conversation")
+                response = self.chitchat_chain.invoke({"language": language, "query": query})
+                return format_response(response, language)
+            
+            # If we get here, no good match was found
+            logger.info(f"No matching FAQ found (score: {similarity} < threshold: {threshold})")
+            response = get_fallback_response(language)
             return format_response(response, language)
                 
         except Exception as e:

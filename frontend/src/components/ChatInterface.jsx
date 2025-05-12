@@ -6,7 +6,9 @@ import {
   Paper, 
   Typography, 
   CircularProgress,
-  IconButton
+  IconButton,
+  Snackbar,
+  Alert
 } from '@mui/material';
 import { Send as SendIcon } from '@mui/icons-material';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -14,6 +16,7 @@ import ReactMarkdown from 'react-markdown';
 import rehypeSanitize from 'rehype-sanitize';
 import rehypeRaw from 'rehype-raw';
 import chatService from '../api/chatService';
+import ModelSelector from './ModelSelector';
 
 const MotionPaper = motion(Paper);
 
@@ -29,6 +32,7 @@ const ChatInterface = ({ language, setLanguage }) => {
   ]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [notification, setNotification] = useState({ open: false, message: '', severity: 'info' });
   const messagesEndRef = useRef(null);
   const isRtl = language === 'ar';
 
@@ -97,8 +101,38 @@ const ChatInterface = ({ language, setLanguage }) => {
     }
   };
 
+  const handleModelChange = (model) => {
+    // Show notification when model changes
+    setNotification({
+      open: true,
+      message: language === 'ar'
+        ? `تم تغيير النموذج إلى ${model.name}`
+        : `Changed model to ${model.name}`,
+      severity: 'success'
+    });
+    
+    // Add system message
+    const systemMessage = {
+      role: 'bot',
+      content: language === 'ar'
+        ? `*تم تغيير النموذج إلى ${model.name}*`
+        : `*Changed model to ${model.name}*`,
+      language: language,
+      isSystem: true
+    };
+    
+    setMessages(prev => [...prev, systemMessage]);
+  };
+
+  const handleCloseNotification = () => {
+    setNotification({ ...notification, open: false });
+  };
+
   return (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+      {/* Model selector */}
+      <ModelSelector onModelChange={handleModelChange} language={language} />
+      
       <Paper 
         elevation={3}
         sx={{ 
@@ -121,7 +155,8 @@ const ChatInterface = ({ language, setLanguage }) => {
                 maxWidth: '80%',
                 mb: 2,
                 p: 2,
-                bgcolor: message.role === 'user' ? '#e3f2fd' : '#ffffff',
+                bgcolor: message.role === 'user' ? '#e3f2fd' : 
+                        message.isSystem ? '#f0f4c3' : '#ffffff',
                 borderRadius: '10px',
                 alignSelf: message.role === 'user' ? 'flex-end' : 'flex-start',
                 ml: message.role === 'user' ? 'auto' : 0,
@@ -205,6 +240,21 @@ const ChatInterface = ({ language, setLanguage }) => {
           }}
         />
       </Box>
+      
+      <Snackbar 
+        open={notification.open} 
+        autoHideDuration={3000} 
+        onClose={handleCloseNotification}
+        anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+      >
+        <Alert 
+          onClose={handleCloseNotification} 
+          severity={notification.severity} 
+          sx={{ width: '100%' }}
+        >
+          {notification.message}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 };

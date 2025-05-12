@@ -12,5 +12,14 @@ jinja2
 pyngrok
 python-multipart
 pydantic
-openssl-python
+pyOpenSSL
 cryptography
+better_profanity
+PyArabic
+# AraBERT and dependencies for Arabic language support
+transformers
+tensorflow
+arabert
+farasapy
+pyarabic
+tf-keras
