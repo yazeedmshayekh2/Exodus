@@ -37,6 +37,14 @@ class ModelSupervisor:
             "temperature": 0.6,
             "model_type": "huggingface"
         },
+        "yazeed-mshayekh/Exodus-Arabic-Model": {
+            "name": "Exodus Arabic Model",
+            "description": "Bilingual FAQ chatbot model optimized for English and Arabic queries",
+            "context_length": 32768,
+            "temperature": 0.6,
+            "model_type": "huggingface",
+            "awq_config_path": "awq_config.json"  # Using the existing AWQ config
+        },
         "fine-tuned-model": {
             "name": "Fine-tuned FAQ Model",
             "description": "Custom fine-tuned model for FAQ handling",

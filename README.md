@@ -105,6 +105,10 @@ The chatbot supports a hybrid approach to model loading:
 
 ### HuggingFace-based Models
 - **Qwen2.5-7B-Instruct**: Loaded directly from HuggingFace
+- **Exodus-Arabic-Model**: Specialized bilingual model for English and Arabic
+  - Optimized for FAQ and customer support scenarios
+  - 4-bit AWQ quantization for efficient resource usage
+  - Enhanced Arabic language understanding
 - Requires more RAM/VRAM but offers better integration
 - Optimized loading with dynamic precision selection
 
@@ -117,16 +121,17 @@ Models can be switched through:
 
 ### Model Integration Comparison
 
-| Feature | Ollama Integration | HuggingFace Direct Integration |
-|---------|-------------------|--------------------------------|
-| **Supported Models** | Llama3:latest | Qwen/Qwen2.5-7B-Instruct |
-| **Resource Usage** | Lower (managed by Ollama) | Higher (loaded in application memory) |
-| **Setup Complexity** | Requires Ollama installation | No additional software needed |
-| **Response Speed** | Slightly slower (API calls) | Faster (direct integration) |
-| **Customization** | Limited by Ollama API | Full control over model parameters |
-| **Quantization** | Managed by Ollama | Dynamic precision based on hardware |
-| **Memory Requirements** | ~2GB system RAM | ~8GB VRAM + ~4GB system RAM |
-| **Error Handling** | API-level error handling | Direct exception handling |
+| Feature | Ollama Integration | HuggingFace Direct Integration | Exodus-Arabic-Model |
+|---------|-------------------|--------------------------------|-------------------|
+| **Supported Models** | Llama3:latest | Qwen/Qwen2.5-7B-Instruct | yazeed-mshayekh/Exodus-Arabic-Model |
+| **Resource Usage** | Lower (managed by Ollama) | Higher (loaded in application memory) | Optimized (4-bit AWQ) |
+| **Setup Complexity** | Requires Ollama installation | No additional software needed | No additional software needed |
+| **Response Speed** | Slightly slower (API calls) | Faster (direct integration) | Faster (direct integration) |
+| **Customization** | Limited by Ollama API | Full control over model parameters | Full control over model parameters |
+| **Quantization** | Managed by Ollama | Dynamic precision based on hardware | 4-bit AWQ quantization |
+| **Memory Requirements** | ~2GB system RAM | ~8GB VRAM + ~4GB system RAM | ~4GB VRAM + ~2GB system RAM |
+| **Error Handling** | API-level error handling | Direct exception handling | Direct exception handling |
+| **Language Support** | Basic multilingual | Good multilingual | Optimized for English/Arabic |
 
 The hybrid approach leverages the benefits of both integration methods:
 - Ollama for ease of use and lower resource requirements

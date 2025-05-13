@@ -474,69 +474,68 @@ Response:"""
             logger.error(f"Error in load_faqs: {e}", exc_info=True)
             raise
             
-    def find_most_similar_faq(self, query: str, language: str = 'en') -> Tuple[FAQEntry, float]:
+    def find_most_similar_faq(self, query: str, language: str = 'en') -> Tuple[List[FAQEntry], List[float]]:
         """
-        Find the most similar FAQ to the user's query.
+        Find the top 5 most similar FAQs to the user's query.
         
         Args:
             query (str): User's input query
             language (str): Language of the query ('en' or 'ar')
             
         Returns:
-            Tuple[Optional[FAQEntry], float]: The best matching FAQ and its similarity score
+            Tuple[List[FAQEntry], List[float]]: List of best matching FAQs and their similarity scores
         """
         try:
             if not query:
-                return None, 0
+                return [], []
 
             # Generate and normalize query embedding
             query_embedding = self.embedding_model.encode(query)
             query_embedding = query_embedding / np.linalg.norm(query_embedding)
             
             # Debug: Print threshold
-            threshold = self.similarity_threshold[language]  # Use instance variable directly
+            threshold = self.similarity_threshold[language]
             logger.info(f"Current threshold for {language}: {threshold}")
             
-            # Search in Qdrant
-            search_result = self.qdrant.search(
+            # Search in Qdrant with top 5 results
+            search_results = self.qdrant.search(
                 collection_name=self.collection_name,
                 query_vector=query_embedding.tolist(),
-                limit=5,  # Increased limit for better matching
+                limit=5,  # Get top 5 matches
                 score_threshold=0.0  # Remove score threshold to see all results
             )
             
-            if not search_result:
+            if not search_results:
                 logger.info("No FAQ matches found in Qdrant")
-                return None, 0
-            
-            # Get the best match
-            best_match = search_result[0]
+                return [], []
             
             # Debug: Print all matches
             logger.info("=== Search Results ===")
-            for i, match in enumerate(search_result):
+            faqs = []
+            scores = []
+            
+            for i, match in enumerate(search_results):
                 logger.info(f"Match {i+1}:")
                 logger.info(f"Score: {match.score:.4f}")
                 logger.info(f"Q(EN): {match.payload['question_en']}")
                 logger.info(f"Q(AR): {match.payload['question_ar']}")
                 logger.info("---")
+                
+                # Create FAQEntry from match
+                faq = FAQEntry(
+                    question_en=match.payload['question_en'],
+                    question_ar=match.payload['question_ar'],
+                    answer_en=match.payload['answer_en'],
+                    answer_ar=match.payload['answer_ar']
+                )
+                faqs.append(faq)
+                scores.append(match.score)
             
-            # Create FAQEntry from best match
-            faq = FAQEntry(
-                question_en=best_match.payload['question_en'],
-                question_ar=best_match.payload['question_ar'],
-                answer_en=best_match.payload['answer_en'],
-                answer_ar=best_match.payload['answer_ar']
-            )
-            
-            logger.info(f"Best match score: {best_match.score} (Threshold: {threshold})")
-            logger.info(f"Will use FAQ: {best_match.score > threshold}")
-            
-            return faq, best_match.score
+            return faqs, scores
             
         except Exception as e:
             logger.error(f"Error in find_most_similar_faq: {e}", exc_info=True)
-            return None, 0
+            return [], []
     
     def detect_language(self, text: str) -> str:
         """
@@ -603,214 +602,112 @@ Response:"""
             
     def get_response(self, query: str, user_id: str = "default") -> str:
         """
-        Generate a response for the user's query.
+        Get response for user query. The approach is:
+        1. Search for exact question match in database
+        2. If exact match found (>90% similarity):
+           - Return only the exact answer
+        3. If similar matches found:
+           - Show top 5 similar questions with answers
+        4. If no matches:
+           - Generate new answer using model knowledge
         
         Args:
             query (str): User's input query
             user_id (str): Unique identifier for the user
             
         Returns:
-            str: Formatted response in the appropriate language
+            str: Response text
         """
         try:
+            # Detect language
             language = self.detect_language(query)
-            logger.info(f"Processing query: '{query}' (Language: {language})")
+            logger.info(f"Detected language: {language}")
             
-            # Check for common conversational phrases directly
-            lower_query = query.lower().strip()
-            
-            # How are you phrases (check these first and give priority)
-            how_are_you_phrases = [
-                "how are you", "how are you doing", "how are you today", "how's it going", 
-                "what's up", "how do you do", "how have you been", "how is everything"
-            ]
-            
-            arabic_how_are_you = [
-                "كيف حالك", "كيفك", "شلونك", "اخبارك", "كيف الحال", "عامل ايه", "ازيك"
-            ]
-            
-            # Other casual chitchat phrases
-            other_chitchat = [
-                "nice to meet you", "good to see you", "what can you do", 
-                "tell me about yourself", "who are you"
-            ]
-            
-            arabic_other_chitchat = [
-                "تشرفنا", "سعيد بلقائك", "ماذا يمكنك أن تفعل", "من أنت", "عرفني بنفسك"
-            ]
-            
-            # Handle "how are you" with dedicated response
-            is_how_are_you = False
-            if any(phrase in lower_query for phrase in how_are_you_phrases):
-                logger.info("Direct detection of 'how are you' phrase")
-                is_how_are_you = True
-            elif any(phrase in query for phrase in arabic_how_are_you):
-                logger.info("Direct detection of Arabic 'how are you' phrase")
-                is_how_are_you = True
-                
-            if is_how_are_you:
-                logger.info("Generating 'how are you' response")
-                
-                # Hardcoded responses for "how are you" to ensure consistent quality
-                if language == 'ar':
-                    hardcoded_responses = [
-                        "أنا بخير، شكراً على سؤالك! كيف يمكنني مساعدتك اليوم؟",
-                        "الحمد لله، أنا بخير. سعيد بالتحدث معك. كيف يمكنني خدمتك؟",
-                        "بخير والحمد لله! أنا هنا لمساعدتك في أي استفسار."
-                    ]
-                    response = hardcoded_responses[hash(query) % len(hardcoded_responses)]
-                else:
-                    hardcoded_responses = [
-                        "I'm doing great, thanks for asking! How can I help you today?",
-                        "I'm very well, thank you! What can I assist you with?",
-                        "I'm doing well! I'm here to help you with any questions you might have."
-                    ]
-                    response = hardcoded_responses[hash(query) % len(hardcoded_responses)]
-                
-                return format_response(response, language)
-            
-            # Handle other chitchat
-            is_other_chitchat = False
-            if any(phrase in lower_query for phrase in other_chitchat):
-                logger.info("Direct detection of other chitchat phrase")
-                is_other_chitchat = True
-            elif any(phrase in query for phrase in arabic_other_chitchat):
-                logger.info("Direct detection of Arabic chitchat phrase")
-                is_other_chitchat = True
-            
-            if is_other_chitchat:
-                logger.info("Processing other chitchat response")
-                response = self.chitchat_chain.invoke({"language": language, "query": query})
-                return format_response(response, language)
-            
-            # More permissive moderation check - only block highly confident detections
-            is_inappropriate, reason = moderate_content(query)
-            if is_inappropriate and reason == "profanity":  # Only block explicit profanity
-                logger.warning(f"Inappropriate content detected: {reason}")
-                response = self.inappropriate_chain.invoke({"language": language})
-                return format_response(response, language)
-            
-            # Determine intent
-            intent = self.intent_chain.invoke({"query": query}).strip().upper()
-            logger.info(f"Detected intent: {intent}")
-            
-            # Handle different intent types
-            if intent == "GREETING":
-                logger.info("Processing greeting response")
-                response = self.greeting_chain.invoke({"language": language})
-                return format_response(response, language)
-            
-            elif intent == "CHITCHAT":
-                logger.info("Processing chitchat response")
-                response = self.chitchat_chain.invoke({"language": language, "query": query})
-                return format_response(response, language)
-                
-            elif intent == "INAPPROPRIATE":
-                # Double-check with our moderation before rejecting
-                if is_inappropriate:
-                    logger.info("Processing response to inappropriate content")
-                    response = self.inappropriate_chain.invoke({"language": language})
-                    return format_response(response, language)
-                else:
-                    # Override with question handling if our moderation didn't flag it
-                    intent = "QUESTION"
-                    logger.info("Overriding INAPPROPRIATE intent to QUESTION")
-            
-            # Process as FAQ query (QUESTION intent or default)
-            logger.info("Searching for FAQ matches...")
-            best_match, similarity = self.find_most_similar_faq(query, language)
+            # Search for similar FAQs
+            faqs, scores = self.find_most_similar_faq(query, language)
             threshold = self.similarity_threshold[language]
             
             # Debug logging
             logger.info(f"Query: '{query}'")
             logger.info(f"Language: {language}")
-            logger.info(f"Similarity score: {similarity}")
-            logger.info(f"Using threshold: {threshold} for language: {language}")
+            logger.info(f"Found {len(faqs)} matches")
             
-            # If we have a match (even a low confidence one), try to use it
-            if best_match:
-                # For stronger matches, use the FAQ directly
-                if similarity > threshold:
-                    logger.info("Found good matching FAQ - generating direct response")
-                    logger.info(f"Matched Question (EN): {best_match.question_en}")
-                    logger.info(f"Matched Question (AR): {best_match.question_ar}")
-                    
-                    # Use the chain to process the response
-                    chain_input = {
-                        "question_en": best_match.question_en,
-                        "answer_en": best_match.answer_en,
-                        "question_ar": best_match.question_ar,
-                        "answer_ar": best_match.answer_ar,
-                        "language": language,
-                        "user_query": query
-                    }
-                    response = self.faq_chain.invoke(chain_input)
-                    logger.info("Generated direct FAQ response")
-                    return format_response(response, language)
+            # If we have matches, process them
+            if faqs and scores:
+                # Log all matches for debugging
+                for i, (faq, score) in enumerate(zip(faqs[:5], scores[:5])):
+                    logger.info(f"Match {i+1}:")
+                    logger.info(f"Score: {score:.4f}")
+                    logger.info(f"Q(EN): {faq.question_en}")
+                    logger.info(f"Q(AR): {faq.question_ar}")
                 
-                # For weaker matches, provide a modified response that indicates uncertainty
-                elif similarity > (threshold * 0.7):  # Lower secondary threshold
-                    logger.info("Found partial FAQ match - generating qualified response")
+                best_match = faqs[0]
+                best_score = scores[0]
+                logger.info(f"Best match score: {best_score} (Threshold: {threshold})")
+                
+                # Check for exact or very close match (above 90% similarity)
+                if best_score > 0.9:
+                    logger.info("Found exact match - returning exact answer")
+                    # Return only the exact answer
+                    exact_answer = best_match.answer_en if language == 'en' else best_match.answer_ar
+                    return format_response(exact_answer, language)
+                
+                # For good matches above threshold, show similar questions and best answer
+                elif best_score > threshold:
+                    logger.info("Found similar questions - showing options")
                     
-                    # Generate a "not sure but here's what I found" response
-                    uncertain_prompt = PromptTemplate(
-                        input_variables=["question_en", "answer_en", "question_ar", "answer_ar", 
-                                      "language", "user_query"],
-                        template="""You are a helpful customer service assistant. The user's question doesn't exactly match our FAQs,
-                        but there is a somewhat related answer that might be useful.
-                        
-                        Most similar FAQ:
-                        EN Q: {question_en}
-                        EN A: {answer_en}
-                        AR Q: {question_ar}
-                        AR A: {answer_ar}
-                        
-                        User query: {user_query}
-                        Language: {language}
-                        
-                        Provide a response that:
-                        1. Acknowledges that you don't have an exact answer to their specific question
-                        2. Offers the related information that might be helpful
-                        3. Is conversational and helpful, not formal
-                        4. Uses the FAQ content but clarifies this isn't an exact match for their question
-                        
-                        For Arabic, be culturally appropriate.
-                        
-                        Response:"""
-                    )
+                    # Format similar questions for display
+                    similar_questions = []
+                    for i, (faq, score) in enumerate(zip(faqs[:5], scores[:5])):
+                        q = faq.question_en if language == 'en' else faq.question_ar
+                        a = faq.answer_en if language == 'en' else faq.answer_ar
+                        similar_questions.append(f"{i+1}. Question: {q}\n   Similarity: {score:.2f}\n   Answer: {a}\n")
                     
-                    uncertain_chain = (
-                        RunnablePassthrough() | 
-                        uncertain_prompt | 
-                        self.llm | 
-                        StrOutputParser()
-                    )
+                    questions_text = "\n".join(similar_questions)
                     
-                    # Create input with the partial match
-                    chain_input = {
-                        "question_en": best_match.question_en,
-                        "answer_en": best_match.answer_en,
-                        "question_ar": best_match.question_ar,
-                        "answer_ar": best_match.answer_ar,
-                        "language": language,
-                        "user_query": query
-                    }
+                    if language == 'ar':
+                        response = f"""وجدت الأسئلة المشابهة التالية في قاعدة البيانات:
+
+{questions_text}
+
+أعلى درجة تشابه هي: {best_score:.2f}"""
+                    else:
+                        response = f"""I found the following similar questions in the database:
+
+{questions_text}
+
+Top similarity score: {best_score:.2f}"""
                     
-                    response = uncertain_chain.invoke(chain_input)
-                    logger.info("Generated qualified response from partial match")
                     return format_response(response, language)
             
-            # For casual conversation that's not a greeting, provide a conversational response
-            if len(query.split()) < 5 or "?" not in query:
-                logger.info("Short query without question mark - treating as conversation")
-                response = self.chitchat_chain.invoke({"language": language, "query": query})
-                return format_response(response, language)
+            # If no good matches found, generate response using LLM
+            logger.info("No matching FAQ found - generating new response")
             
-            # If we get here, no good match was found
-            logger.info(f"No matching FAQ found (score: {similarity} < threshold: {threshold})")
-            response = get_fallback_response(language)
-            return format_response(response, language)
+            # Create prompt for the model
+            if language == 'ar':
+                prompt = f"""أنت مساعد ذكي ومفيد. المستخدم سأل:
+{query}
+
+بما أنني لم أجد إجابة مشابهة في قاعدة البيانات، الرجاء تقديم إجابة مفيدة ودقيقة بناءً على معرفتك."""
+            else:
+                prompt = f"""You are an intelligent assistant. The user asked:
+{query}
+
+Since I couldn't find a similar answer in the database, please provide a helpful and accurate response based on your knowledge."""
+            
+            try:
+                # Generate response using the model
+                response = self.llm.invoke(prompt)
+                
+                if language == 'ar':
+                    return format_response(f"لم أجد إجابة مشابهة في قاعدة البيانات، لذلك سأقدم إجابة بناءً على معرفتي:\n\n{response}", language)
+                else:
+                    return format_response(f"I couldn't find a similar answer in the database, so I'll provide a response based on my knowledge:\n\n{response}", language)
+                    
+            except Exception as e:
+                logger.error(f"Error generating LLM response: {e}")
+                return format_response(get_fallback_response(language), language)
                 
         except Exception as e:
-            logger.error(f"Error generating response: {e}", exc_info=True)
+            logger.error(f"Error in get_response: {e}", exc_info=True)
             return format_response(get_fallback_response(language), language) 

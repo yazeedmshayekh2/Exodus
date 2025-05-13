@@ -35,6 +35,7 @@ DB_PASSWORD = os.getenv('DB_PASSWORD', 'P@ssw0rdSQL')
 
 # Ollama configuration
 OLLAMA_BASE_URL = os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434')
+# MODEL_NAME options: 'llama3.1:8b', 'Qwen/Qwen2.5-7B-Instruct-AWQ', 'yazeed-mshayekh/Exodus-Arabic-Model'
 MODEL_NAME = os.getenv('MODEL_NAME', 'llama3.1:8b')
 
 # CORS configuration
