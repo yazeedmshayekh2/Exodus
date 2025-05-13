@@ -1,0 +1,8 @@
+{
+  "quantization": {
+    "bits": 4,
+    "group_size": 128,
+    "zeroing": true,
+    "weight_dtype": "float16"
+  }
+} 

@@ -192,7 +192,7 @@ const Layout = ({ children }) => {
       >
         <Typography variant="body2" color="text.secondary">
           © 2025 {isRtl ? 'روبوت الدردشة ثنائي اللغة' : 'Bilingual FAQ Chatbot'} | 
-          {isRtl ? ' بُني بـ ❤️ بواسطة Basel' : ' Built with ❤️ by Basel'}
+          {isRtl ? ' بُني بـ ❤️ بواسطة Basel' : ' Built with ❤️ by Yazeed'}
         </Typography>
       </Box>
     </Box>

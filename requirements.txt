@@ -1,36 +1,49 @@
+# Core dependencies
 fastapi
 uvicorn
+pydantic
+python-dotenv
+jinja2
+python-multipart
+gunicorn
+passlib
+
+# Database and storage
 pyodbc
+pymssql
+qdrant-client
+
+# Machine Learning and NLP
+torch
+transformers
 sentence-transformers
-numpy
 langchain
 langchain-core
 langchain-ollama
 langdetect
-qdrant-client
-python-dotenv
-jinja2
-pyngrok
-python-multipart
-pydantic
-pyOpenSSL
-cryptography
-better_profanity
-PyArabic
-# AraBERT and dependencies for Arabic language support
-transformers
-tensorflow
-arabert
-farasapy
-pyarabic
-tf-keras
-pymssql
-pytest
-pymupdf
-gunicorn
-passlib
-torch
+numpy
+
+# Model Optimization
 accelerate
 bitsandbytes
 safetensors
 ollama
+autoawq
+triton
+huggingface_hub
+
+# Arabic Language Support
+PyArabic
+arabert
+farasapy
+tf-keras
+
+# Security and Utils
+pyOpenSSL
+cryptography
+better_profanity
+pyngrok
+pymupdf
+
+# Testing
+pytest

@@ -65,4 +65,43 @@ htmlcov/
 nosetests.xml
 coverage.xml
 *.cover
-.hypothesis/ 
+.hypothesis/
+
+# Node.js
+node_modules/
+.next/
+.nuxt/
+.npm
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# SSL
+ssl/
+*.pem
+*.key
+*.crt
+
+# Model files
+*.bin
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+model_weights/
+Fine-tune/
+saved_models/
+
+# Large files
+*.gz
+*.zip
+*.tar
+*.rar
+*.7z
+
+# Misc
+.env*
+!.env.example
+.vercel
+.turbo 

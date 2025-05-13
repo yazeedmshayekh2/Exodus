@@ -51,6 +51,12 @@ def post_process_formatting(response: str, language: str) -> str:
             # Fix ** text ** -> **text** (remove spaces inside bold markers)
             line = re.sub(r'\*\*\s+([^*]+?)\s+\*\*', r'**\1**', line)
             
+            # More aggressive fixing for spaces after opening **
+            line = re.sub(r'\*\*\s+', r'**', line)
+            
+            # More aggressive fixing for spaces before closing **
+            line = re.sub(r'\s+\*\*', r'**', line)
+            
             # Fix ***text*** -> **text** (remove extra *)
             line = re.sub(r'\*\*\*+([^*]+?)\*\*\*+', r'**\1**', line)
             
@@ -85,6 +91,11 @@ def post_process_formatting(response: str, language: str) -> str:
         for pattern, replacement in phone_patterns:
             response = re.sub(pattern, replacement, response)
     
+    # One final pass to fix any remaining bold text issues
+    response = re.sub(r'\*\*\s+', r'**', response)  # Remove spaces after **
+    response = re.sub(r'\s+\*\*', r'**', response)  # Remove spaces before **
+    response = re.sub(r'\*{3,}', r'**', response)   # Fix excessive asterisks
+    
     # Clean up extra whitespace
     response = re.sub(r' {2,}', ' ', response)
     response = re.sub(r'\n{3,}', '\n\n', response)
@@ -110,6 +121,10 @@ def format_english_response(response: str) -> str:
     # Fix improper bold text formatting
     # Replace ** text ** (with spaces inside) with **text** (no spaces inside)
     response = re.sub(r'\*\*\s+([^*]+?)\s+\*\*', r'**\1**', response)
+    
+    # More aggressive fixing for spaces after opening ** and before closing **
+    response = re.sub(r'\*\*\s+', r'**', response)
+    response = re.sub(r'\s+\*\*', r'**', response)
     
     # Remove extra stars around text that's already bold
     response = re.sub(r'\*\s*\*\*([^*]+?)\*\*\s*\*', r'**\1**', response)
@@ -239,6 +254,10 @@ def format_arabic_response(response: str) -> str:
     
     # Fix improper bold text formatting
     response = re.sub(r'\*\*\s+([^*]+?)\s+\*\*', r'**\1**', response)
+    
+    # More aggressive fixing for spaces after opening ** and before closing **
+    response = re.sub(r'\*\*\s+', r'**', response)
+    response = re.sub(r'\s+\*\*', r'**', response)
     
     # Remove extra stars around text that's already bold
     response = re.sub(r'\*\s*\*\*([^*]+?)\*\*\s*\*', r'**\1**', response)

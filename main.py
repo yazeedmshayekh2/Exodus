@@ -7,9 +7,9 @@ Qdrant vector database for finding relevant FAQ matches from a SQL Server databa
 
 Key components:
 - FastAPI server with CORS and security middleware.
-- Sentence transformer MPNet-base-v2 for semantic embeddings.
+- Sentence transformer multilingual-e5-large for semantic embeddings.
 - Local in-memory Qdrant for vector similarity search.
-- Ollama Llama 3.1 8B LLM as the brain of the chatbot.
+- Ollama Llama 3.1 8B and Qwen2.5-7B-Instruct LLMs as the brains of the chatbot.
 - Markdown formatting for responses.
 
 Built by: Yazeed Mshayekh | AI Engineer
@@ -55,6 +55,14 @@ if __name__ == "__main__":
     try:
         # Disable tokenizer parallelism
         os.environ["TOKENIZERS_PARALLELISM"] = "false"
+        
+        # Test bold text formatting fix
+        logger.info("Testing bold text formatting fix:")
+        test_response = "This is a **test** of bold text. ** This should be fixed ** too."
+        from app.core.response import post_process_formatting
+        fixed_response = post_process_formatting(test_response, "en")
+        logger.info(f"Original: {test_response}")
+        logger.info(f"Fixed: {fixed_response}")
         
         # Load environment variables
         port = int(os.getenv('PORT', 8000))

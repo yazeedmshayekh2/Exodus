@@ -1,8 +1,12 @@
 # Exodus Chatbot: Bilingual FAQ Chatbot with Hybrid Model Support
 
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+
 A production-ready chatbot API that provides bilingual support for English and Arabic questions using semantic search and LLM-powered responses with a hybrid approach to model loading.
 
-## Features
+## 🌟 Features
 
 - **Bilingual Support**: Handles both English and Arabic queries with dedicated optimization for each language
 - **Content Moderation**: Built-in profanity and inappropriate content filtering for both languages
@@ -11,7 +15,7 @@ A production-ready chatbot API that provides bilingual support for English and A
 - **Semantic Search**: Uses sentence transformers to find the most relevant answers
 - **Hybrid Model Approach**: 
   - Uses Ollama for Llama 3 model integration
-  - Direct HuggingFace integration for Qwen3-8B-FP8 model
+  - Direct HuggingFace integration for Qwen2.5-7B-Instruct-AWQ model
 - **Dynamic Model Switching**: Switch between models on-the-fly based on query needs
 - **Graceful Degradation**: Falls back to simpler processing when advanced Arabic NLP tools aren't available
 
@@ -34,7 +38,7 @@ graph TD
             FAQ -->|Model Selection| ModelHub[Model Hub]
             Conv -->|Model Selection| ModelHub
             ModelHub -->|Local API| Ollama[Llama3 via Ollama]
-            ModelHub -->|Direct Integration| HF[Qwen3 via HuggingFace]
+            ModelHub -->|Direct Integration| HF[Qwen2.5 via HuggingFace]
         end
     end
     
@@ -57,7 +61,7 @@ This chatbot features comprehensive Arabic language capabilities:
 
 For detailed information about Arabic support, see [ARABIC_SUPPORT.md](ARABIC_SUPPORT.md).
 
-## Getting Started
+## 🚀 Quick Start
 
 ### Prerequisites
 
@@ -74,12 +78,18 @@ git clone https://github.com/yourusername/exodus-chatbot.git
 cd exodus-chatbot
 ```
 
-2. Install dependencies:
+2. Create and activate a virtual environment (recommended):
+```bash
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\\Scripts\\activate
+```
+
+3. Install dependencies:
 ```bash
 pip install -r requirements.txt
 ```
 
-3. Run the server:
+4. Run the server:
 ```bash
 python main.py
 ```
@@ -94,9 +104,9 @@ The chatbot supports a hybrid approach to model loading:
 - Lower resource usage as models are managed by Ollama
 
 ### HuggingFace-based Models
-- **Qwen3-8B-FP8**: Loaded directly from HuggingFace
+- **Qwen2.5-7B-Instruct**: Loaded directly from HuggingFace
 - Requires more RAM/VRAM but offers better integration
-- Quantized for efficiency (FP8 format)
+- Optimized loading with dynamic precision selection
 
 ### Switching Between Models
 
@@ -109,12 +119,12 @@ Models can be switched through:
 
 | Feature | Ollama Integration | HuggingFace Direct Integration |
 |---------|-------------------|--------------------------------|
-| **Supported Models** | Llama3:latest | Qwen/Qwen3-8B-FP8 |
+| **Supported Models** | Llama3:latest | Qwen/Qwen2.5-7B-Instruct |
 | **Resource Usage** | Lower (managed by Ollama) | Higher (loaded in application memory) |
 | **Setup Complexity** | Requires Ollama installation | No additional software needed |
 | **Response Speed** | Slightly slower (API calls) | Faster (direct integration) |
 | **Customization** | Limited by Ollama API | Full control over model parameters |
-| **Quantization** | Managed by Ollama | FP8 quantization for efficiency |
+| **Quantization** | Managed by Ollama | Dynamic precision based on hardware |
 | **Memory Requirements** | ~2GB system RAM | ~8GB VRAM + ~4GB system RAM |
 | **Error Handling** | API-level error handling | Direct exception handling |
 
@@ -242,17 +252,29 @@ If the frontend cannot connect to the API:
 - [ARABIC_SUPPORT.md](ARABIC_SUPPORT.md): Detailed information about Arabic language support
 - API documentation is available at `/api/docs` when the server is running
 
-## License
+## 📝 Contributing
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+Contributions are welcome! Please feel free to submit a Pull Request. For major changes, please open an issue first to discuss what you would like to change.
 
-## Acknowledgments
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
 
-- Built using FastAPI, Sentence Transformers, and Ollama
-- Arabic language support powered by PyArabic, langdetect, and better_profanity
-- Optional advanced Arabic processing via AraBERT
-- Models from Meta (Llama3) and Alibaba (Qwen3)
-- Frontend built with React, Vite, and Axios
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🙏 Acknowledgments
+
+- Thanks to the Ollama team for their excellent model serving solution
+- Thanks to the HuggingFace team for their transformers library
+- Thanks to all contributors who have helped with code, suggestions, and bug reports
+
+## 📧 Contact
+
+For questions and support, please open an issue in the GitHub repository.
 
 ## Model Loading Process
 
@@ -319,7 +341,7 @@ flowchart TD
     
     ModelSelect --> ModelSuitability{Select suitable model}
     
-    ModelSuitability -->|Complex query| HF[Qwen Model via HF]
+    ModelSuitability -->|Complex query| HF[Qwen2.5-7B-Instruct via HF]
     ModelSuitability -->|Simple query| Ollama[Llama3 via Ollama]
     
     FAQ --> ResponseFormat[Format Response]

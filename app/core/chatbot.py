@@ -68,7 +68,7 @@ class FAQChatbot:
         self.embeddings_cache_file = os.path.join(script_dir, 'embeddings_cache.npz')
         
         # Initialize embedding model on CPU
-        self.embedding_model = SentenceTransformer('sentence-transformers/paraphrase-multilingual-mpnet-base-v2', device='cpu')
+        self.embedding_model = SentenceTransformer('intfloat/multilingual-e5-large', device='cpu')
         
         self.llm = OllamaLLM(
             base_url=os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434'),
@@ -129,62 +129,58 @@ class FAQChatbot:
             StrOutputParser()
         )
         
-        # FAQ response prompt
+        # Initialize FAQ prompt template
         self.faq_prompt = PromptTemplate(
-            input_variables=["question_en", "answer_en", "question_ar", "answer_ar", 
-                           "language", "user_query"],
-            template="""You are a friendly and professional customer service assistant. Act naturally and respond directly to user queries. ONLY provide information based on the FAQ match provided.
+            input_variables=["language", "context", "query"],
+            template="""You are a precise and knowledgeable assistant providing specific information based on the given context.
 
-            FAQ Match:
-            EN Q: {question_en}
-            EN A: {answer_en}
-            AR Q: {question_ar}
-            AR A: {answer_ar}
+Language: {language}
 
-            User Query: {user_query}
-            Language: {language}
+Relevant Context:
+{context}
 
-            Instructions:
-            1. If FAQ match exists (both question and answer are not empty):
-               - Answer directly and naturally using ONLY the FAQ information
-               - Keep the original information accurate
-               - Use a conversational tone
-               - DO NOT make up or invent information that is not in the FAQ
-               - If the user's query asks for details not in the FAQ, state clearly that you don't have that specific information
-               
-            2. Format your response with proper line breaks and spacing:
-               - Start with the title/heading
-               - Add a blank line after the heading
-               - Add a blank line before lists
-               - Keep paragraphs concise
-               - No email signatures or formal closings
+User Query: {query}
 
-            3. Use markdown formatting:
-               - For titles: Use "**Title:**" format
-               - For important terms: Use "**term**" with spaces
-               - For phone numbers: Use "**1234 5678**" format
-               - For lists: Use numbers (1. 2. 3.) or bullet points (*)
+Response Guidelines:
 
-            4. Response structure:
-               - Title/heading
-               - Brief introduction if needed
-               - Numbered steps or bullet points
-               - Simple closing statement (optional)
-               - NO signatures, names, or titles
+1. Structure:
+   - If the answer involves steps, use numbered steps
+   - If listing items, use bullet points
+   - For complex information, break it down into clear sections
 
-            5. If NO FAQ match (empty question or answer):
-               AR: "عذراً، لا أملك معلومات كافية حول هذا الموضوع. يمكنك التواصل مع فريق خدمة العملاء للحصول على المساعدة المتخصصة."
-               EN: "I apologize, I don't have enough information about this topic. You can contact our customer service team for specialized assistance."
+2. Content Requirements:
+   - Use ONLY the information provided in the context
+   - If the context doesn't fully answer the query, explicitly state what information is missing
+   - Include specific details, numbers, and references from the context
+   - For technical terms, provide brief explanations
 
-            Remember:
-            - Be direct and concise
-            - No email formatting or signatures
-            - No meta-commentary
-            - Keep responses focused
-            - Always add proper spacing around bold text (** text **)
-            - ONLY provide information from the FAQ match, never invent or assume details
+3. Format Based on Query Type:
+   A. For "How to" questions:
+      - List prerequisites first
+      - Provide numbered steps
+      - Include any warnings or notes
+      - End with expected outcome
 
-            Response:"""
+   B. For informational questions:
+      - Start with the most relevant information
+      - Organize details in logical sections
+      - Include any important qualifications or limitations
+
+   C. For requirements or specifications:
+      - List all requirements clearly
+      - Specify any conditions or exceptions
+      - Include deadlines or time constraints if mentioned
+
+4. Clarity:
+   - Use clear, direct language
+   - Define any technical terms
+   - Highlight important warnings or prerequisites
+   - For Arabic, use formal Modern Standard Arabic (فصحى)
+   - For English, use clear professional language
+
+Remember: Only use information from the provided context. If information is missing or unclear, state this explicitly.
+
+Response:"""
         )
         
         # Chitchat response prompt
@@ -317,7 +313,7 @@ class FAQChatbot:
             self.qdrant.recreate_collection(
                 collection_name=self.collection_name,
                 vectors_config=VectorParams(
-                    size=768,  # Dimension of MPNet embeddings
+                    size=1024,  # Dimension of E5-large embeddings
                     distance=Distance.COSINE
                 )
             )
