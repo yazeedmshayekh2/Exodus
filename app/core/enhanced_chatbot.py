@@ -28,6 +28,7 @@ from app.core.memory import ConversationMemory
 from app.core.response import format_response
 from app.utils.moderation import moderate_content
 from app.core.model_supervisor import ModelSupervisor
+from app.core.question_matcher import QuestionMatcher
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -315,125 +316,76 @@ class EnhancedChatbot(FAQChatbot):
     # Models are managed by ModelSupervisor
     
     def __init__(self):
-        """Initialize the enhanced chatbot with memory and configurable model"""
+        """Initialize enhanced chatbot with memory and model supervision"""
+        # Call parent initializer first to ensure attributes are available
         super().__init__()
+        
+        # Create question matcher instance after super().__init__() is called
+        from app.core.question_matcher import QuestionMatcher
+        self.question_matcher = QuestionMatcher(similarity_threshold=self.similarity_threshold)
+        
+        # Initialize memory system
+        self.memory_enabled = os.getenv('ENABLE_MEMORY', 'true').lower() == 'true'
+        self.memory = ConversationMemory()
         
         # Initialize model supervisor
         self.model_supervisor = ModelSupervisor()
+        self.current_model = os.getenv('MODEL_NAME', 'llama3.1:8b')
         
-        # Initialize conversation memory
-        self.memory = ConversationMemory(
-            max_users=int(os.getenv('MAX_USERS', '1000')),
-            max_messages_per_user=int(os.getenv('MAX_MESSAGES_PER_USER', '20'))
-        )
-        
-        # Set up memory configuration
-        self.memory_enabled = os.getenv('ENABLE_MEMORY', 'true').lower() == 'true'
-        
-        # Create enhanced prompts that use conversation history
-        # Enhanced chat prompt that includes conversation history
-        self.memory_chat_prompt = PromptTemplate(
-            input_variables=["language", "history", "query"],
-            template="""You are a highly knowledgeable customer service assistant for an Arabic and English bilingual organization.
-
-Language: {language}
-
-Previous conversation history:
-{history}
-
-Current query: {query}
-
-Response Guidelines:
-1. Answer Format:
-   - If the question asks for steps or procedures, use numbered steps (1., 2., 3., etc.)
-   - If it's a factual question, provide specific details and examples
-   - For complex topics, break down the information into clear sections
-
-2. Content Requirements:
-   - Always provide specific, relevant information instead of generic responses
-   - Include exact details, numbers, or references when available
-   - If technical terms are used, briefly explain them
-   - If there are prerequisites or important notes, list them first
-
-3. Language Style:
-   - For Arabic: Use formal Modern Standard Arabic (فصحى) but maintain clarity
-   - For English: Use clear, professional language
-   - Avoid generic phrases like "I can help you with that" without actual help
-   - Be direct and specific in addressing the query
-
-4. Structure:
-   - For multi-part questions, address each part separately
-   - Use bullet points or numbering for lists
-   - If relevant, include:
-     * Prerequisites or requirements
-     * Important warnings or notes
-     * Next steps or follow-up actions
-
-5. Context Awareness:
-   - Reference relevant information from previous conversation
-   - If clarification is needed, ask specific questions
-   - If information is incomplete, state what additional details are needed
-
-Remember: Your response should be tailored to the exact query and context, not a generic template answer.
-
-Response:"""
-        )
-
-        # Intent classification prompt for distinguishing between FAQ and conversational queries
+        # Question type classifier with bias toward FAQ lookup over conversation
         self.query_type_prompt = PromptTemplate(
             input_variables=["query", "language"],
-            template="""Analyze the user's query to determine if it requires factual information (FAQ) or is conversational in nature.
+            template="""Analyze the following user message and classify it as either FAQ (factual query) or CHAT (conversational).
 
-Query for analysis: {query}
+User message: {query}
 Language: {language}
 
-Classification Guidelines:
+Guidelines:
+- Classify as FAQ if the query is asking for factual information, instructions, or specific details
+- Classify as FAQ if it contains specific keywords or professional terminology
+- Classify as FAQ if it's a question that would likely have a definitive answer
+- Only classify as CHAT if it's purely conversational, casual, or social
+- When in doubt, classify as FAQ to prioritize accurate information over conversation
 
-1. FAQ Category (Factual/Informational):
-   - Questions seeking specific information or procedures
-   - Technical or process-related inquiries
-   - Questions about policies, requirements, or specifications
-   - Queries that need precise, factual answers
-   Examples:
-   - "What documents do I need for X?"
-   - "How do I perform X procedure?"
-   - "What are the requirements for X?"
+Your response should be ONLY 'FAQ' or 'CHAT' with no additional text.
 
-2. CONVERSATION Category:
-   - Greetings and social interactions
-   - Open-ended discussions
-   - Personal opinions or advice
-   - General assistance requests
-   Examples:
-   - "Hello, how are you?"
-   - "Can you help me understand..."
-   - "What do you think about..."
-
-Respond with exactly one category:
-FAQ
-or
-CONVERSATION
-
-Category:"""
+Classification:"""
         )
         
-        # Set up model configuration AFTER defining prompts
-        self.current_model = self.model_supervisor.get_current_model()
+        # Set up the model
         self.configure_model(self.current_model)
         
-        # Initialize chains after configure_model has set up the LLM
+        # Chain for determining query type
         self.query_type_chain = (
-            RunnablePassthrough() |
-            self.query_type_prompt |
-            self.llm |
+            RunnablePassthrough() | 
+            self.query_type_prompt | 
+            self.llm | 
             StrOutputParser()
         )
         
-        # Enhanced chain with memory
+        # Memory-based conversational prompt with reduced history reliance
+        self.memory_prompt = PromptTemplate(
+            input_variables=["language", "history", "query", "wants_detail"],
+            template="""You are a helpful assistant who {detail_level}.
+
+Language: {language}
+
+Previous conversation summary (use this for understanding context and helpful references):
+{history}
+
+Current user message: {query}
+
+Important instructions:
+{instructions}
+
+Response:"""
+        )
+        
+        # Chain for memory-based response
         self.memory_chat_chain = (
-            RunnablePassthrough() |
-            self.memory_chat_prompt |
-            self.llm |
+            RunnablePassthrough() | 
+            self.memory_prompt | 
+            self.llm | 
             StrOutputParser()
         )
     
@@ -524,9 +476,53 @@ Category:"""
             
         return "\n".join(formatted)
     
+    def format_memory_prompt(self, language: str, history: str, query: str, wants_detail: bool) -> dict:
+        """
+        Format the memory prompt based on whether user wants details or not.
+        
+        Args:
+            language (str): Language code
+            history (str): Formatted conversation history
+            query (str): User query
+            wants_detail (bool): Whether user wants detailed response
+            
+        Returns:
+            dict: Formatted prompt variables
+        """
+        if wants_detail:
+            detail_level = "provides comprehensive and detailed information"
+            instructions = """1. Use conversation history to provide context-aware responses
+2. Provide an in-depth, thorough explanation
+3. Explain key concepts comprehensively with examples
+4. Include details from previous conversation when relevant
+5. Organize your answer into sections if needed
+6. Conclude with a summary of the main points"""
+        else:
+            detail_level = "prioritizes brevity and directness"
+            instructions = """1. Be extremely concise - respond in 2-3 sentences maximum
+2. Focus solely on answering the current query without any fluff
+3. Only reference conversation history if absolutely necessary
+4. Avoid all unnecessary words, explanations, or pleasantries
+5. Provide only essential, factual information
+6. Use clear, direct language"""
+            
+        return {
+            "language": language,
+            "history": history,
+            "query": query,
+            "wants_detail": wants_detail,
+            "detail_level": detail_level,
+            "instructions": instructions
+        }
+    
     def get_enhanced_response(self, query: str, user_id: str = "default") -> str:
         """
-        Generate a response using conversation history
+        Generate a response prioritizing exact question matches over conversation history.
+        
+        Process:
+        1. Check for exact question match in database first
+        2. Use conversation context only when necessary
+        3. Fall back to standard response when appropriate
         
         Args:
             query (str): User's input query
@@ -537,7 +533,11 @@ Category:"""
         """
         try:
             language = self.detect_language(query)
-            logger.info(f"Processing query with memory: '{query}' (Language: {language})")
+            logger.info(f"Processing query: '{query}' (Language: {language})")
+            
+            # Check if user is asking for more details
+            wants_details = self.is_asking_for_detail(query, language)
+            logger.info(f"User wants detailed response: {wants_details}")
             
             # Check for special commands
             if query.startswith("/model "):
@@ -546,7 +546,7 @@ Category:"""
                 if success:
                     return format_response(f"Model changed to {model_name}", language)
                 else:
-                    return format_response(f"Error changing model to {model_name}. Available models: {', '.join(self.AVAILABLE_MODELS.keys())}", language)
+                    return format_response(f"Error changing model to {model_name}. Available models: {', '.join(self.model_supervisor.AVAILABLE_MODELS.keys())}", language)
                     
             elif query == "/models":
                 models_list = self.list_available_models()
@@ -557,31 +557,85 @@ Category:"""
                 self.memory.clear_user_history(user_id)
                 return format_response("Conversation history cleared", language)
             
-            # Add user message to history
-            if self.memory_enabled:
-                self.memory.add_message(user_id, "user", query)
-                
             # Content moderation
             is_inappropriate, reason = moderate_content(query)
             if is_inappropriate:
                 logger.warning(f"Inappropriate content detected: {reason}")
                 response = self.inappropriate_chain.invoke({"language": language})
-                
-                # Add assistant response to history
-                if self.memory_enabled:
-                    self.memory.add_message(user_id, "assistant", response)
-                    
                 return format_response(response, language)
             
-            # Get conversation history
-            if self.memory_enabled:
-                history = self.memory.get_formatted_history(user_id)
-                formatted_history = self.format_history(history[:-1])  # Exclude the just-added message
-            else:
-                formatted_history = "Memory disabled."
-                history = []
+            # STEP 1: First check for exact question matches from FAQ database
+            faqs, scores = self.find_most_similar_faq(query, language)
             
-            # Detect if this is a FAQ query or conversational query
+            if faqs and scores:
+                # Check for exact match using question_matcher
+                for i, faq in enumerate(faqs[:5]):
+                    candidate_q = faq.question_en if language == 'en' else faq.question_ar
+                    if self.question_matcher.is_exact_match(query, candidate_q, language):
+                        logger.info(f"Found exact question match: {candidate_q}")
+                        # Return exact answer directly without using history
+                        exact_answer = faq.answer_en if language == 'en' else faq.answer_ar
+                        
+                        # If user wants more details and it's not asking for details itself
+                        if wants_details and not self.is_asking_for_detail(candidate_q, language):
+                            logger.info("User wants more details on an exact match")
+                            # Get the detailed response
+                            if language == 'ar':
+                                prompt = f"""أنت مساعد ذكي ومفيد وخبير. المستخدم سأل:
+{query}
+
+وجدت إجابة دقيقة في قاعدة البيانات:
+{exact_answer}
+
+المستخدم يطلب تفاصيل أكثر. الرجاء توسيع الإجابة الموجودة بتفاصيل وشرح أكثر.
+
+تعليمات إضافية:
+1. استخدم الإجابة الأصلية كأساس
+2. أضف تفاصيل وأمثلة إضافية
+3. اشرح أي مصطلحات فنية
+4. قدم معلومات أكثر عمقاً حول الموضوع"""
+                            else:
+                                prompt = f"""You are an intelligent, helpful expert assistant. The user asked:
+{query}
+
+I found an exact answer in our database:
+{exact_answer}
+
+The user is requesting more detailed information. Please expand on the existing answer with more details and explanation.
+
+Additional instructions:
+1. Use the original answer as a foundation
+2. Add additional details and examples
+3. Explain any technical terms
+4. Provide more in-depth information on the topic"""
+                            
+                            try:
+                                # Generate detailed response using the model
+                                detailed_answer = self.llm.invoke(prompt)
+                                
+                                # Add interaction to memory if enabled, but don't use it for response
+                                if self.memory_enabled:
+                                    self.memory.add_message(user_id, "user", query)
+                                    self.memory.add_message(user_id, "assistant", detailed_answer)
+                                    
+                                return format_response(detailed_answer, language)
+                            except Exception as e:
+                                logger.error(f"Error generating detailed response: {e}")
+                                # Fall back to the exact answer if there's an error
+                                return format_response(exact_answer, language)
+                        
+                        # Add interaction to memory if enabled, but don't use it for response
+                        if self.memory_enabled:
+                            self.memory.add_message(user_id, "user", query)
+                            self.memory.add_message(user_id, "assistant", exact_answer)
+                            
+                        return format_response(exact_answer, language)
+            
+            # Add user message to history for subsequent processing
+            if self.memory_enabled:
+                self.memory.add_message(user_id, "user", query)
+                
+            # STEP 2: Detect if this is a FAQ query or conversational query
             query_type = self.query_type_chain.invoke({
                 "query": query,
                 "language": language
@@ -589,59 +643,52 @@ Category:"""
             
             logger.info(f"Query type classification: {query_type}")
             
-            # Log the detected query type
-            logger.info(f"Proceeding with detected query type: {query_type}")
-            
-            # Handle different query types
+            # STEP 3: Handle different query types
             try:
-                if query_type == "FAQ" and not any(special in query.lower() for special in ["hello", "hi", "hey", "السلام", "مرحبا"]):
-                    # Use the FAQ matching system for factual queries
+                # FAQ queries should prioritize knowledge over conversation history
+                if query_type == "FAQ" or "FAQ" in query_type:
                     logger.info("Using FAQ response system for factual query")
+                    # Use the modified parent FAQ method
                     response = super().get_response(query, user_id)
-                elif self.memory_enabled and len(history) > 1:
-                    # Use memory-based conversation for continuity
-                    logger.info("Using conversation memory for response")
                     
-                    # First try with current model
-                    try:
-                        response = self.memory_chat_chain.invoke({
-                            "language": language,
-                            "history": formatted_history,
-                            "query": query
-                        })
-                    except Exception as chain_error:
-                        logger.error(f"Memory chain error: {chain_error}. Falling back to Ollama model.")
-                        
-                        # Try to switch to Ollama model if current model failed
-                        if self.current_model != "llama3.1:8b":
-                            old_model = self.current_model
-                            logger.info(f"Attempting to switch to llama3.1:8b due to error with {old_model}")
-                            
-                            if self.configure_model("llama3.1:8b"):
-                                response = self.memory_chat_chain.invoke({
-                                    "language": language,
-                                    "history": formatted_history,
-                                    "query": query
-                                })
-                            else:
-                                # If switch fails, use standard response
-                                response = super().get_response(query, user_id)
+                # For chat queries with sufficient history, use memory
+                elif self.memory_enabled:
+                    history = self.memory.get_formatted_history(user_id)
+                    
+                    # Always use history if user wants details
+                    if wants_details or len(history) > 2:
+                        if wants_details:
+                            logger.info("User wants detailed response with conversation context")
                         else:
-                            # Already using Ollama, fall back to standard response
-                            response = super().get_response(query, user_id)
+                            logger.info("Using minimal conversation memory for response")
+                        
+                        # Format the history
+                        formatted_history = self.format_history(history[-5:] if wants_details else history[-3:-1])
+                        
+                        # Generate response with appropriate detail level
+                        prompt_vars = self.format_memory_prompt(
+                            language=language,
+                            history=formatted_history,
+                            query=query,
+                            wants_detail=wants_details
+                        )
+                        
+                        # Generate response with memory context
+                        response = self.memory_chat_chain.invoke(prompt_vars)
+                    else:
+                        # Not enough history, use standard response
+                        logger.info("Not enough conversation history, using standard response")
+                        response = super().get_response(query, user_id)
                 else:
-                    # Handle simple conversational queries without enough history
-                    logger.info("Using standard conversation response (no sufficient memory)")
+                    # Memory disabled, use standard response
+                    logger.info("Memory disabled, using standard response")
                     response = super().get_response(query, user_id)
+                    
             except Exception as e_response:
                 logger.error(f"Error generating response: {e_response}")
-                # Provide a generic fallback response
-                if language == 'ar':
-                    response = "عذراً، واجهت مشكلة فنية. يرجى المحاولة مرة أخرى."
-                else:
-                    response = "Sorry, I encountered a technical issue. Please try again."
+                response = super().get_response(query, user_id)
             
-            # Add assistant response to history if available
+            # Add assistant response to history if enabled
             if self.memory_enabled:
                 self.memory.add_message(user_id, "assistant", response)
                 
