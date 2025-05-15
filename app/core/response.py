@@ -93,7 +93,8 @@ def post_process_formatting(response: str, language: str) -> str:
     
     # One final pass to fix any remaining bold text issues
     response = re.sub(r'\*\*\s+', r'**', response)  # Remove spaces after **
-    response = re.sub(r'\s+\*\*', r'**', response)  # Remove spaces before **
+    response = re.sub(r'(\S)(\*\*[^*]+?\*\*)', r'\1 \2', response)  # Add space before bold text markers
+    response = re.sub(r'(\*\*[^*]+?\*\*)(\S)', r'\1 \2', response)  # Add space after bold text markers
     response = re.sub(r'\*{3,}', r'**', response)   # Fix excessive asterisks
     
     # Clean up extra whitespace
@@ -201,9 +202,10 @@ def format_english_response(response: str) -> str:
     # Add proper spacing after punctuation
     response = re.sub(r'([.,!?:])(?!\s|$)', r'\1 ', response)
     
-    # Fix bold text - remove spaces between asterisks and text
+    # Fix bold text formatting
     response = re.sub(r'\*\*\s+', '**', response)  # Remove space after **
-    response = re.sub(r'\s+\*\*', '**', response)  # Remove space before **
+    response = re.sub(r'(\S)(\*\*[^*]+?\*\*)', r'\1 \2', response)  # Add space before bold text markers
+    response = re.sub(r'(\*\*[^*]+?\*\*)(\S)', r'\1 \2', response)  # Add space after bold text markers
     
     # Fix for consecutive bold texts
     response = re.sub(r'\*\*\s*\*\*', '', response)  # Remove empty bold markers
@@ -320,7 +322,8 @@ def format_arabic_response(response: str) -> str:
         # Handle bold text - fix spacing
         if '**' in line:
             line = re.sub(r'\*\*\s+', '**', line)  # Remove space after **
-            line = re.sub(r'\s+\*\*', '**', line)  # Remove space before **
+            line = re.sub(r'(\S)(\*\*[^*]+?\*\*)', r'\1 \2', line)  # Add space before bold text markers
+            line = re.sub(r'(\*\*[^*]+?\*\*)(\S)', r'\1 \2', line)  # Add space after bold text markers
         
         # Regular text
         in_list = False
